@@ -115,8 +115,10 @@ export async function onTabCreated(tab: chrome.tabs.Tab) {
   if (!shouldTrack(tab, s)) return;
   const r = newRecord(tab, Date.now(), true);
   if (tab.openerTabId !== undefined) {
-    const opener = await db.tabs.get(tab.openerTabId);
-    r.openerUrl = opener?.url;
+    const opener = await chrome.tabs.get(tab.openerTabId).catch(() => undefined);
+    // Tabs opened from TabLens itself (restores, "Open" buttons) aren't part of a browsing trail.
+    if (!opener?.url || !/^https?:/.test(opener.url)) r.openerTabId = undefined;
+    else r.openerUrl = opener.url;
   }
   await db.tabs.put(r);
 }

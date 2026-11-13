@@ -1,7 +1,9 @@
 import { db, uid } from './db';
 import type { Save, SaveIntent } from './types';
 import { normalizeUrl } from './url';
-import { tfidf, tokenize, centroid, cosine, topTerms, titleCase } from './text';
+import { tfidf, tokenize, centroid, cosine, topTerms, stem } from './text';
+
+const sentence = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
 import { pathWords, siteOf } from './url';
 
 export const INTENTS: { id: SaveIntent; label: string; hint: string }[] = [
@@ -130,9 +132,13 @@ export async function loadLibrary(): Promise<LibraryItem[]> {
 }
 
 /** Topic shelves for the library: same TF-IDF engine as missions, tuned looser for short titles. */
-export function topicShelves(items: LibraryItem[], threshold = 0.28): { name: string; items: LibraryItem[] }[] {
+export function topicShelves(items: LibraryItem[], threshold = 0.16): { name: string; items: LibraryItem[] }[] {
   if (!items.length) return [];
-  const docs = items.map((i) => [...tokenize(i.title), ...tokenize(i.title), ...pathWords(i.url).filter((w) => w.length > 2), siteOf(i.url).split('.')[0]!]);
+  // Titles are short, so the site counts twice and URL path words fill in context.
+  const docs = items.map((i) => {
+    const site = siteOf(i.url).split('.')[0]!;
+    return [...tokenize(i.title), ...tokenize(i.title), ...pathWords(i.url).filter((w) => w.length > 2).map(stem), site, site];
+  });
   const { vectors } = tfidf(docs);
   const clusters: { ids: number[]; c: ReturnType<typeof centroid> }[] = [];
   // Single pass leader clustering: fast enough for thousands of bookmarks.
@@ -150,7 +156,7 @@ export function topicShelves(items: LibraryItem[], threshold = 0.28): { name: st
   });
   const shelves = clusters
     .filter((c) => c.ids.length >= 2)
-    .map((c) => ({ name: titleCase(topTerms(c.c, 2).join(' & ')) || 'Misc', items: c.ids.map((i) => items[i]!) }))
+    .map((c) => ({ name: sentence(topTerms(c.c, 2).join(' & ')) || 'Misc', items: c.ids.map((i) => items[i]!) }))
     .sort((a, b) => b.items.length - a.items.length);
   const loose = clusters.filter((c) => c.ids.length < 2).flatMap((c) => c.ids.map((i) => items[i]!));
   if (loose.length) shelves.push({ name: 'Everything else', items: loose });

@@ -326,7 +326,7 @@ if (SHOTS) {
   await ext.goto(`${base}/dashboard.html#/settings`);
   await ext.waitForSelector('text=Engagement weights');
   await shot(ext, 'settings');
-  await ext.getByText('Use the Gemini API').scrollIntoViewIfNeeded();
+  await ext.getByText('Use the Gemini API', { exact: true }).scrollIntoViewIfNeeded();
   await shot(ext, 'settings-ai');
 
   await ext.goto(`${base}/dashboard.html#/missions`);

@@ -213,7 +213,7 @@ function SliderField({ value, min, max, step, unit, onCommit }: { value: number;
     <div className="flex items-center gap-4">
       <Slider value={[v]} min={min} max={max} step={step} onValueChange={([x]) => setV(x!)} onValueCommit={([x]) => onCommit(x!)} />
       <span className="tabular w-28 shrink-0 text-right text-[13px]">
-        {v} {unit}
+        {v} {v === 1 ? unit.replace(/s$/, '') : unit}
       </span>
     </div>
   );

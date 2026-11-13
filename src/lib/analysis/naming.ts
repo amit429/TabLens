@@ -77,6 +77,8 @@ export function heuristicName(descs: Descriptor[], c: Vector): string {
   const [type, typeShare] = dominant(descs.map((d) => d.pageType));
   const [site, siteShare] = dominant(descs.map((d) => d.site));
   const siteTokens = new Set(descs.map((d) => d.site.split('.')[0]!));
+  // Ticket-key prefixes ("EXP" in EXP-88) make poor names.
+  for (const d of descs) for (const m of d.title.matchAll(/\b([a-z]{2,8})-\d+\b/gi)) siteTokens.add(m[1]!.toLowerCase());
   const terms = topTerms(c, 3, siteTokens);
   const query = descs.find((d) => d.query)?.query;
   // A search that started the mission is the best name there is.

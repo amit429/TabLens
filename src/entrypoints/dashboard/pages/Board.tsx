@@ -376,7 +376,8 @@ function SortableCard({ id, tab, verdictState, record, onOpen }: { id: number; t
 }
 
 function TabCard({ tab, state, record, onOpen, lifted }: { tab: chrome.tabs.Tab; state?: TabState; record?: { maxScroll: number; formStarted: boolean; lastAccessed?: number }; onOpen?: () => void; lifted?: boolean }) {
-  const last = Math.max((tab as chrome.tabs.Tab & { lastAccessed?: number }).lastAccessed ?? 0, record?.lastAccessed ?? 0);
+  // TabLens's own record is authoritative once it exists (see lastUsed in analysis/states).
+  const last = record?.lastAccessed ?? (tab as chrome.tabs.Tab & { lastAccessed?: number }).lastAccessed ?? 0;
   return (
     <div
       role="button"
@@ -394,7 +395,7 @@ function TabCard({ tab, state, record, onOpen, lifted }: { tab: chrome.tabs.Tab;
       </div>
       <div className="mt-2 flex items-center gap-2 pl-6">
         {state && <StateChip state={state} />}
-        {last > 0 && <span className="text-[11px] text-muted-foreground">{formatAgo(Date.now() - last)}</span>}
+        {last > 0 && <span className="whitespace-nowrap text-[11px] text-muted-foreground">{formatAgo(Date.now() - last)}</span>}
         <span className="ml-auto flex items-center gap-1.5 text-muted-foreground">
           {tab.pinned && <Pin className="size-3" aria-label="Pinned" />}
           {tab.audible && <Volume2 className="size-3" aria-label="Playing audio" />}
