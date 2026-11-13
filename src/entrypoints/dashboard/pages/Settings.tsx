@@ -17,7 +17,7 @@ import { GEMINI_MODELS, downloadNano, type NanoStatus } from '@/lib/ai/router';
 import { buildUserPrompt } from '@/lib/ai/prompt';
 import { db, uid } from '@/lib/db';
 import { rpc } from '@/lib/rpc';
-import { hostnameOf } from '@/lib/url';
+import { WEB_ORIGINS, hostnameOf } from '@/lib/url';
 import { cn } from '@/lib/cn';
 
 const SECTIONS = [
@@ -382,7 +382,7 @@ function Privacy({ s }: { s: S }) {
           <Button
             variant="outline"
             onClick={async () => {
-              await chrome.permissions.remove({ origins: ['<all_urls>'] });
+              await chrome.permissions.remove({ origins: WEB_ORIGINS });
               toast('Page reading turned off');
             }}
           >

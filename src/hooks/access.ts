@@ -1,3 +1,4 @@
+import { WEB_ORIGINS } from '@/lib/url';
 import * as React from 'react';
 import { rpc } from '@/lib/rpc';
 import { act } from '@/lib/ui-actions';
@@ -5,7 +6,7 @@ import { act } from '@/lib/ui-actions';
 export function usePageAccess() {
   const [has, setHas] = React.useState<boolean | null>(null);
   React.useEffect(() => {
-    const check = () => chrome.permissions.contains({ origins: ['<all_urls>'] }).then(setHas);
+    const check = () => chrome.permissions.contains({ origins: WEB_ORIGINS }).then(setHas);
     check();
     chrome.permissions.onAdded.addListener(check);
     chrome.permissions.onRemoved.addListener(check);
@@ -19,7 +20,7 @@ export function usePageAccess() {
 
 /** Must run from a click: Chrome only shows the permission prompt for user gestures. */
 export async function requestAccess() {
-  const granted = await chrome.permissions.request({ origins: ['<all_urls>'] });
+  const granted = await chrome.permissions.request({ origins: WEB_ORIGINS });
   if (granted) await act(rpc('enableContentReading', {}).then(() => ({ count: 0, message: 'Page reading is on. Missions sharpen as pages load.' })));
 }
 

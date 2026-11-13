@@ -4,11 +4,18 @@ const STOP = new Set(
   untitled loading dashboard inbox`.split(/\s+/),
 );
 
+/** Light plural folding so "laptops" and "laptop" match. Deliberately conservative. */
+export function stem(w: string): string {
+  if (w.length > 4 && w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.length > 3 && w.endsWith('s') && !/(ss|us|is|os|as)$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+
 /** Lowercase word tokens without stop words; keeps short model numbers like "m4" or "rtx". */
 export function tokenize(text: string): string[] {
-  return (text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}+#]*/gu) ?? []).filter(
-    (w) => w.length > 1 && w.length < 28 && !STOP.has(w) && !/^\d{1,3}$/.test(w),
-  );
+  return (text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}+#]*/gu) ?? [])
+    .filter((w) => w.length > 1 && w.length < 28 && !STOP.has(w) && !/^\d{1,3}$/.test(w))
+    .map(stem);
 }
 
 export type Vector = Map<string, number>;
@@ -24,7 +31,10 @@ export function tfidf(docs: string[][]): TfIdf {
   for (const doc of docs) for (const t of new Set(doc)) df.set(t, (df.get(t) ?? 0) + 1);
   const n = docs.length;
   const idf = new Map<string, number>();
-  for (const [t, d] of df) idf.set(t, Math.log((1 + n) / (1 + d)) + 1);
+  // Terms on (nearly) every page — boilerplate, cookie banners, shared nav — carry no signal, so
+  // they get ~0 weight instead of the usual smoothed +1. Small sets keep a floor so 2–3 tabs still compare.
+  const floor = n < 6 ? 0.35 : 0.02;
+  for (const [t, d] of df) idf.set(t, Math.max(floor, Math.log((1 + n) / (1 + d)) + (n < 6 ? 1 : 0.15 * (1 - d / n))));
 
   const vectors = docs.map((doc) => {
     const tf = new Map<string, number>();

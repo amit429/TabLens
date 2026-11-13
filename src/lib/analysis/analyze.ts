@@ -18,6 +18,8 @@ export interface NamerResult {
   missions: { key: string; name: string; intent?: string; kind?: MissionKind; confidence?: number }[];
   /** Tabs from "Unsorted" the model placed into a mission. */
   assignments?: { tabId: number; key: string }[];
+  /** Clusters the model judged to be the same mission. */
+  merges?: { from: string; into: string }[];
 }
 
 export type Namer = (clusters: NamerCluster[], unsorted: NamerCluster['tabs']) => Promise<NamerResult>;
@@ -147,6 +149,15 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
         c.tabIds.push(a.tabId);
         c.evidence.set(a.tabId, [{ code: 'model', text: 'The AI model placed it here based on its content' }]);
         unsortedIds = unsortedIds.filter((id) => id !== a.tabId);
+      }
+      for (const mg of res.merges ?? []) {
+        const from = clusters.find((x) => x.key === mg.from && x.source === 'similarity');
+        const into = clusters.find((x) => x.key === mg.into);
+        if (!from || !into || from === into) continue;
+        into.tabIds.push(...from.tabIds);
+        for (const id of from.tabIds) into.evidence.set(id, [...(from.evidence.get(id) ?? []), { code: 'model', text: 'Gemini judged it part of the same task' }]);
+        into.centroid = centroid([into.centroid, from.centroid]);
+        clusters = clusters.filter((x) => x !== from);
       }
       engine = input.engine ?? 'nano';
     } catch (err) {

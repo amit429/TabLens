@@ -124,3 +124,6 @@ export function faviconFor(pageUrl: string, size = 32): string {
   u.searchParams.set('size', String(size));
   return u.toString();
 }
+
+/** The optional host permission TabLens asks for: web pages only (no file:// or other schemes). */
+export const WEB_ORIGINS = ['http://*/*', 'https://*/*'];

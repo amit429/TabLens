@@ -12,6 +12,7 @@ export const NamerSchema = z.object({
     }),
   ),
   assignments: z.array(z.object({ tabId: z.number(), key: z.string() })),
+  merges: z.array(z.object({ from: z.string(), into: z.string() })),
 });
 
 export const SYSTEM_PROMPT = `You name "missions" for a browser tab organiser.
@@ -25,8 +26,9 @@ Return for every cluster:
 - kind: "work" (job, code, docs, tickets, professional tools) or "personal"
 - confidence: 0 to 1, how coherent the cluster is
 
+If two clusters are clearly the same task (e.g. product pages and reviews for the same purchase), add {from, into} to merges.
 Then look at the unsorted tabs. If one clearly belongs to a cluster, add {tabId, key} to assignments. Leave the rest out.
-Use only cluster keys you were given.`;
+Use only cluster keys you were given. Return empty arrays when nothing applies.`;
 
 /** Compact text description of the clusters, kept small so on-device models fit it in context. */
 export function buildUserPrompt(clusters: NamerCluster[], unsorted: NamerCluster['tabs'], summaryWords = 40): string {
@@ -49,5 +51,6 @@ export function sanitize(res: z.infer<typeof NamerSchema>, clusters: NamerCluste
       .filter((m) => keys.has(m.key) && m.name.trim())
       .map((m) => ({ ...m, name: m.name.trim().replace(/[.!]+$/, '').slice(0, 48), confidence: Math.max(0, Math.min(1, m.confidence)) })),
     assignments: res.assignments.filter((a) => keys.has(a.key)),
+    merges: (res.merges ?? []).filter((m) => keys.has(m.from) && keys.has(m.into) && m.from !== m.into),
   };
 }

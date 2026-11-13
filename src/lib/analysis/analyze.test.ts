@@ -125,6 +125,45 @@ describe('analyze', () => {
     expect(failed.engine).toBe('heuristic');
   });
 
+  it('ignores boilerplate words shared by every page', async () => {
+    const boiler = ['cookies', 'newsletter', 'subscribe', 'privacy', 'account', 'menu', 'footer', 'copyright'];
+    const tabs = pile().map((t) => ({
+      ...t,
+      snapshot: { normUrl: t.normUrl, url: t.url, title: t.title, pageType: 'other' as const, description: '', headings: [], text: '', keywords: boiler, capturedAt: NOW },
+    }));
+    const a = await run(tabs);
+    const missionOf = (title: string) => a.verdicts[tabs.find((t) => t.title.startsWith(title))!.id]!.missionId;
+    expect(missionOf('Fix receipt')).not.toBe(missionOf('MacBook Air'));
+    expect(missionOf('Attention Is All')).not.toBe(missionOf('Lenovo ThinkPad'));
+  });
+
+  it('applies AI merges and placements', async () => {
+    const tabs = pile();
+    const base = await run(tabs);
+    const free = base.missions.filter((m) => m.id !== UNSORTED_ID && m.source === 'heuristic');
+    const a = await analyze({
+      tabs, rules: [], groups: new Map(), settings, now: NOW, engine: 'cloud',
+      namer: async (clusters, unsorted) => ({
+        missions: clusters.map((c) => ({ key: c.key, name: 'M ' + c.key })),
+        merges: clusters.length > 1 ? [{ from: clusters[1]!.key, into: clusters[0]!.key }] : [],
+        assignments: unsorted.length ? [{ tabId: unsorted[0]!.id, key: clusters[0]!.key }] : [],
+      }),
+    });
+    expect(a.missions.filter((m) => m.id !== UNSORTED_ID).length).toBe(free.length - 1 + (base.missions.length - free.length - 1));
+    const merged = a.missions.find((m) => m.name.startsWith('M '))!;
+    expect(merged.tabIds.some((id) => a.verdicts[id]!.evidence.some((e) => e.code === 'model'))).toBe(true);
+  });
+
+  it("doesn't chain unrelated tabs through Chrome's opener", async () => {
+    const tabs = pile();
+    // Every tab "opened from" the one before it, as Chrome reports for Ctrl+T tabs.
+    for (let i = 1; i < tabs.length; i++) tabs[i]!.record!.openerTabId = tabs[i - 1]!.id;
+    const a = await run(tabs);
+    const missionOf = (title: string) => a.verdicts[tabs.find((t) => t.title.startsWith(title))!.id]!.missionId;
+    expect(missionOf('Fix receipt')).not.toBe(missionOf('Lenovo ThinkPad'));
+    expect(missionOf('Visa application')).not.toBe(missionOf('Fix receipt'));
+  });
+
   it('handles 300 tabs quickly', async () => {
     resetIds();
     const topics = ['laptop battery', 'rust async tokio', 'pasta recipe', 'flight goa hotel', 'react hooks state', 'running shoes'];

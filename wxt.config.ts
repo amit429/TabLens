@@ -3,11 +3,17 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   srcDir: 'src',
+  outDir: process.env.TABLENS_E2E ? '.output-e2e' : '.output',
   modules: ['@wxt-dev/module-react'],
   hooks: {
     // Content scripts are registered at runtime after the user opts in, so page access must stay
     // optional. WXT would otherwise add the script's match patterns as install-time host permissions.
+    // TABLENS_E2E=1 builds a test variant with the optional permissions pre-granted.
     'build:manifestGenerated': (_wxt, manifest) => {
+      if (process.env.TABLENS_E2E) {
+        manifest.permissions = [...(manifest.permissions ?? []), 'bookmarks'];
+        return;
+      }
       delete manifest.host_permissions;
     },
   },
@@ -32,7 +38,7 @@ export default defineConfig({
       'favicon',
     ],
     optional_permissions: ['bookmarks'],
-    optional_host_permissions: ['<all_urls>'],
+    optional_host_permissions: ['http://*/*', 'https://*/*'],
     action: { default_title: 'TabLens' },
     side_panel: { default_path: 'sidepanel.html' },
     commands: {

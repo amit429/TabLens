@@ -66,29 +66,34 @@ export function siteLabel(site: string): string {
   return SITE_LABEL[site] ?? titleCase(site.split('.')[0] ?? site);
 }
 
-/** Heuristic mission name when no model is available. */
-export function heuristicName(descs: Descriptor[], c: Vector): string {
-  const [repo, repoShare] = dominant(descs.map((d) => d.repo).filter(Boolean) as string[]);
-  if (repo && repoShare >= 0.5 && descs.filter((d) => d.repo).length >= descs.length / 2) return `${repo.split('/')[1]} (${repo.split('/')[0]})`;
+const sentence = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
 
-  const query = descs.find((d) => d.query)?.query;
+/** Heuristic mission name when no model is available. Sentence case, short, specific. */
+export function heuristicName(descs: Descriptor[], c: Vector): string {
+  const repos = descs.map((d) => d.repo).filter(Boolean) as string[];
+  const [repo] = dominant(repos);
+  if (repo && repos.length >= descs.length / 2) return `${repo.split('/')[1]} (${repo.split('/')[0]})`;
+
   const [type, typeShare] = dominant(descs.map((d) => d.pageType));
   const [site, siteShare] = dominant(descs.map((d) => d.site));
   const siteTokens = new Set(descs.map((d) => d.site.split('.')[0]!));
   const terms = topTerms(c, 3, siteTokens);
-  const topic = query ? titleCase(query.length > 34 ? terms.slice(0, 2).join(' ') : query) : titleCase(terms.slice(0, 2).join(' & '));
+  const query = descs.find((d) => d.query)?.query;
+  // A search that started the mission is the best name there is.
+  if (query && query.length <= 40) return sentence(query.toLowerCase());
 
+  const topic = terms.length ? sentence(terms.slice(0, 2).join(' & ')) : '';
   if (!topic) return descs.length === 1 ? shortTitle(descs[0]!.title) : siteLabel(site ?? '');
-  if (siteShare === 1 && descs.length > 1 && siteHint('https://' + site)?.app) return `${siteLabel(site!)}: ${topic}`;
+  if (siteShare === 1 && descs.length > 1 && siteHint('https://' + site)?.app) return `${siteLabel(site!)}: ${topic.toLowerCase()}`;
   const prefix: Partial<Record<PageType, string>> = {
-    product: 'Shopping for',
-    article: 'Reading on',
+    product: 'Shopping',
+    article: 'Reading',
     video: 'Watching',
-    docs: 'Docs:',
-    issue: 'Tickets:',
+    docs: 'Docs',
+    issue: 'Tickets',
     search: 'Researching',
   };
-  if (type && typeShare >= 0.6 && prefix[type] && descs.length > 1) return `${prefix[type]} ${topic}`;
+  if (type && typeShare >= 0.6 && prefix[type] && descs.length > 1) return `${prefix[type]}: ${topic.toLowerCase()}`;
   return topic;
 }
 

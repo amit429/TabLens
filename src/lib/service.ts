@@ -18,8 +18,8 @@ export async function collectTabs(): Promise<{ tabs: TabView[]; groups: Map<numb
   const snapByUrl = new Map(snaps.filter(Boolean).map((s) => [s!.normUrl, s!]));
   const extId = chrome.runtime.id;
   const tabs: TabView[] = chromeTabs
-    // Skip TabLens's own pages.
-    .filter((t) => t.id !== undefined && !(t.url ?? '').startsWith(`chrome-extension://${extId}`))
+    // Skip TabLens's own pages and empty new-tab pages.
+    .filter((t) => t.id !== undefined && !(t.url ?? '').startsWith(`chrome-extension://${extId}`) && !/^(about:blank|chrome:\/\/newtab|chrome:\/\/new-tab-page)/.test(t.url || t.pendingUrl || ''))
     .map((t) => {
       const url = t.url || t.pendingUrl || '';
       const norm = normalizeUrl(url);

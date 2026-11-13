@@ -60,13 +60,18 @@ const nanoNamer: Namer = async (clusters, unsorted) => {
   const session = await LanguageModel!.create({ ...LANG, initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }] });
   try {
     // Nano's context window is small, so clusters go in batches of six.
-    const out = { missions: [] as ReturnType<typeof sanitize>['missions'], assignments: [] as NonNullable<ReturnType<typeof sanitize>['assignments']> };
+    const out = {
+      missions: [] as ReturnType<typeof sanitize>['missions'],
+      assignments: [] as NonNullable<ReturnType<typeof sanitize>['assignments']>,
+      merges: [] as NonNullable<ReturnType<typeof sanitize>['merges']>,
+    };
     for (let i = 0; i < clusters.length; i += 6) {
       const batch = clusters.slice(i, i + 6);
       const raw = await session.prompt(buildUserPrompt(batch, i === 0 ? unsorted.slice(0, 15) : [], 20), { responseConstraint: namerJsonSchema });
       const res = sanitize(NamerSchema.parse(JSON.parse(raw)), batch);
       out.missions.push(...res.missions);
       out.assignments.push(...(res.assignments ?? []));
+      out.merges.push(...(res.merges ?? []));
     }
     return out;
   } finally {

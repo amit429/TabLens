@@ -8,7 +8,7 @@ import { runAnalysis, updateBadge } from '@/lib/service';
 import { DEFAULT_SETTINGS, getSettings, isPaused, updateSettings } from '@/lib/settings';
 import { keywords } from '@/lib/text';
 import * as tracker from '@/lib/tracker';
-import { isExcluded, isReadableUrl, normalizeUrl } from '@/lib/url';
+import { WEB_ORIGINS, isExcluded, isReadableUrl, normalizeUrl } from '@/lib/url';
 import { DAY } from '@/lib/analysis/states';
 
 const CONTENT_ID = 'tablens-content';
@@ -165,7 +165,7 @@ export default defineBackground({
         await db.rules.delete(ruleId);
       },
       enableContentReading: async () => {
-        const granted = await chrome.permissions.contains({ origins: ['<all_urls>'] });
+        const granted = await chrome.permissions.contains({ origins: WEB_ORIGINS });
         if (granted) {
           await ensureContentScripts();
           await injectIntoOpenTabs();
@@ -229,7 +229,8 @@ export default defineBackground({
           ...snapshot,
           pageType: snapshot.pageType ?? 'other',
           normUrl,
-          keywords: keywords(`${snapshot.title} ${snapshot.description} ${snapshot.headings.join(' ')} ${snapshot.text}`, 10),
+          // Title and headings count several times so keywords describe the page, not its boilerplate.
+          keywords: keywords(`${snapshot.title} `.repeat(3) + `${snapshot.description} ${snapshot.headings.join(' ')} `.repeat(2) + snapshot.text.split(/\s+/).slice(0, 600).join(' '), 10),
           capturedAt: Date.now(),
           // Keep an AI summary if the page text hasn't materially changed.
           aiSummary: prev && prev.text.slice(0, 500) === snapshot.text.slice(0, 500) ? prev.aiSummary : undefined,
@@ -264,7 +265,7 @@ function scheduleAnalysis(ms = 2500) {
 }
 
 async function ensureContentScripts() {
-  const granted = await chrome.permissions.contains({ origins: ['<all_urls>'] });
+  const granted = await chrome.permissions.contains({ origins: WEB_ORIGINS });
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [CONTENT_ID] }).catch(() => []);
   if (!granted) {
     if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_ID] });

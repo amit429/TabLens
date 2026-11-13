@@ -86,7 +86,12 @@ export function findDuplicates(tabs: TabView[]): Map<number, number> {
   return out;
 }
 
+/**
+ * When TabLens has tracked a tab since it opened, its own record is the source of truth: Chrome's
+ * lastAccessed also moves on session restore and window juggling that aren't real visits.
+ */
 export function lastUsed(t: TabView): number {
+  if (t.record?.hasHistory) return t.record.lastAccessed || t.lastAccessed || 0;
   return Math.max(t.lastAccessed || 0, t.record?.lastAccessed || 0);
 }
 

@@ -8,3 +8,4 @@ coverage
 .env*
 web-ext.config.ts
 stats.html
+.output-e2e

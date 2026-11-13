@@ -1,5 +1,5 @@
 import type { PageType, Reason, Rule, TabView } from '../types';
-import { cosine, centroid, tfidf, tokenize, type Vector } from '../text';
+import { cosine, centroid, stem, tfidf, tokenize, type Vector } from '../text';
 import { hostMatches, hostnameOf, pathWords, siteOf } from '../url';
 import { pageTypeFromUrl, repoOf, searchQuery, siteHint } from './pagetype';
 
@@ -40,7 +40,7 @@ export function describe(t: TabView): Descriptor {
   const tokens = [
     ...tokenize(parts.join(' ')),
     ...(snap?.keywords ?? []),
-    ...pathWords(t.url).filter((w) => w.length > 2),
+    ...pathWords(t.url).filter((w) => w.length > 2).map(stem),
     ...(repo ? [repo.split('/')[1]!, repo.split('/')[1]!] : []),
   ].filter((w) => w !== siteToken);
   const summary = (snap?.description || snap?.text.slice(0, 600) || '').trim();
@@ -172,10 +172,14 @@ export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opt
     const opener = byId.get(openerId)!;
     const hint = siteHint(opener.url);
     const sim = cosine(vec.get(t.id)!, vec.get(openerId)!);
-    // Mail, chat and feeds open links to anything; only trust the chain when content agrees.
-    if (hint?.hub && sim < opts.similarity * 0.6) continue;
-    uf.union(t.id, openerId);
     const q = searchQuery(opener.url);
+    // An opener alone isn't proof: Chrome also records the previously active tab as the opener of
+    // Ctrl+T tabs, and mail, chat and feeds open links to anything. Chains are trusted only when the
+    // content agrees a little (or a lot, for hubs), or when the child matches the search that opened it.
+    const queryMatch = q ? tokenize(q).some((w) => vec.get(t.id)!.has(w)) : false;
+    const needed = hint?.hub ? opts.similarity * 0.6 : opts.similarity * 0.3;
+    if (!queryMatch && sim < needed) continue;
+    uf.union(t.id, openerId);
     addEv(t.id, {
       code: 'opener',
       text: q ? `Opened from your search “${q}”` : `Opened from “${truncate(opener.title, 60)}”`,
