@@ -17,6 +17,7 @@ import { formatAgo, formatDuration, DAY } from '@/lib/analysis/states';
 import type { Analysis, TabRecord } from '@/lib/types';
 import { UNSORTED_ID } from '@/lib/analysis/analyze';
 import { truncateWords } from '@/lib/text';
+import { cn } from '@/lib/cn';
 
 const VERDICT_LABEL = {
   keep: 'Keep',
@@ -29,12 +30,15 @@ const VERDICT_LABEL = {
 export function Dossier({ tabId, analysis, onOpenChange }: { tabId: number | null; analysis: Analysis | null | undefined; onOpenChange: (open: boolean) => void }) {
   return (
     <Sheet open={tabId !== null} onOpenChange={onOpenChange}>
-      <SheetContent aria-describedby={undefined}>{tabId !== null && <DossierBody tabId={tabId} analysis={analysis} close={() => onOpenChange(false)} />}</SheetContent>
+      <SheetContent aria-describedby={undefined}>{tabId !== null && <DossierView tabId={tabId} analysis={analysis} close={() => onOpenChange(false)} inSheet />}</SheetContent>
     </Sheet>
   );
 }
 
-function DossierBody({ tabId, analysis, close }: { tabId: number; analysis: Analysis | null | undefined; close: () => void }) {
+/** The dossier content; used in the dashboard sheet and inline in the side panel. */
+export function DossierView({ tabId, analysis, close, inSheet }: { tabId: number; analysis: Analysis | null | undefined; close?: () => void; inSheet?: boolean }) {
+  const Title = inSheet ? SheetTitle : 'h2';
+  const Desc = inSheet ? SheetDescription : 'div';
   const [tab, setTab] = React.useState<chrome.tabs.Tab | null>(null);
   React.useEffect(() => {
     chrome.tabs.get(tabId).then(setTab, () => setTab(null));
@@ -43,6 +47,12 @@ function DossierBody({ tabId, analysis, close }: { tabId: number; analysis: Anal
   const snapshot = useLiveQuery(() => (tab?.url ? db.snapshots.get(normalizeUrl(tab.url)) : undefined), [tab?.url]);
   const opener = useLiveQuery(() => (record?.openerTabId !== undefined ? db.tabs.get(record.openerTabId) : undefined), [record?.openerTabId]);
   const [summarizing, setSummarizing] = React.useState(false);
+  React.useEffect(() => {
+    // The side panel follows the active tab; refresh title/url when it navigates.
+    const on = (id: number) => id === tabId && chrome.tabs.get(tabId).then(setTab, () => setTab(null));
+    chrome.tabs.onUpdated.addListener(on);
+    return () => chrome.tabs.onUpdated.removeListener(on);
+  }, [tabId]);
   const [saveOpen, setSaveOpen] = React.useState(false);
 
   if (!tab) return <div className="p-6 text-[13px] text-muted-foreground">This tab is no longer open.</div>;
@@ -55,11 +65,11 @@ function DossierBody({ tabId, analysis, close }: { tabId: number; analysis: Anal
   return (
     <>
       <div className="border-b border-border px-5 pb-4 pt-5">
-        <div className="flex items-start gap-3 pr-6">
+        <div className={cn('flex items-start gap-3', inSheet && 'pr-6')}>
           <Favicon url={tab.url} favIconUrl={tab.favIconUrl} size={20} className="mt-0.5" />
           <div className="min-w-0">
-            <SheetTitle className="line-clamp-2 text-[17px]">{tab.title}</SheetTitle>
-            <SheetDescription className="mt-1 flex flex-wrap items-center gap-2">
+            <Title className="line-clamp-2 font-display text-[17px] font-semibold leading-tight">{tab.title}</Title>
+            <Desc className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
               <span>{hostOf(tab.url)}</span>
               <span className="inline-flex items-center gap-1">
                 <PageTypeIcon type={pageType} />
@@ -67,7 +77,7 @@ function DossierBody({ tabId, analysis, close }: { tabId: number; analysis: Anal
               </span>
               {v && <StateChip state={v.state} />}
               {v?.flags.map((f) => <StateChip key={f} state={f} />)}
-            </SheetDescription>
+            </Desc>
           </div>
         </div>
       </div>
@@ -151,7 +161,7 @@ function DossierBody({ tabId, analysis, close }: { tabId: number; analysis: Anal
         <Button size="sm" variant="outline" onClick={() => act(rpc('setKeep', { tabIds: [tabId], keep: !kept }), { success: kept ? 'Keep removed' : 'Kept — never suggested for cleanup' })}>
           {kept ? <ShieldOff /> : <ShieldCheck />} {kept ? 'Unkeep' : 'Keep'}
         </Button>
-        <SnoozeMenu tabIds={[tabId]} onDone={close}>
+        <SnoozeMenu tabIds={[tabId]} onDone={() => close?.()}>
           <Button size="sm" variant="outline">
             <AlarmClock /> Snooze
           </Button>
@@ -186,7 +196,7 @@ function DossierBody({ tabId, analysis, close }: { tabId: number; analysis: Anal
           onClick={async () => {
             if (record?.formStarted && !confirm(`“${tab.title}” has a form you started filling in. Archive it anyway?`)) return;
             await act(rpc('archiveTabs', { tabIds: [tabId] }));
-            close();
+            close?.();
           }}
         >
           <Archive /> Archive
