@@ -202,6 +202,75 @@ describe('analyze', () => {
     expect(m.tabIds).not.toContain(tabs.find((t) => t.title.startsWith('Fix receipt'))!.id);
   });
 
+  describe('LLM-first organiser', () => {
+    it('lets the model decide missions, including cross-site ones heuristics miss', async () => {
+      const tabs = pile();
+      const id = (p: string) => tabs.find((t) => t.title.startsWith(p))!.id;
+      const a = await analyze({
+        tabs, rules: [], groups: new Map(), settings, now: NOW, engine: 'cloud',
+        organizer: async (req) => {
+          expect(req.tabs.every((t) => typeof t.id === 'number')).toBe(true);
+          return {
+            missions: [
+              { name: 'Comparing laptops', intent: 'Choosing a laptop', kind: 'personal', confidence: 0.9, tabIds: [id('best laptops'), id('MacBook'), id('Lenovo'), id('ASUS'), id('Dell')] },
+              { name: 'Fixing receipt uploads', intent: 'Safari upload bug', kind: 'work', confidence: 0.95, tabIds: [id('Fix receipt'), id('Receipts fail'), id('acme/expense-app')] },
+            ],
+            unsorted: [],
+          };
+        },
+      });
+      expect(a.engine).toBe('cloud');
+      const laptops = a.missions.find((m) => m.name === 'Comparing laptops')!;
+      expect(laptops.source).toBe('model');
+      expect(laptops.intent).toBe('Choosing a laptop');
+      expect(laptops.tabIds).toEqual(expect.arrayContaining([id('Lenovo'), id('ASUS')]));
+      expect(a.missions.find((m) => m.name === 'Fixing receipt uploads')!.kind).toBe('work');
+      // Everything the model didn't place is Unsorted, and every tab is still in exactly one mission.
+      expect(a.verdicts[id('Hacker News')]!.missionId).toBe(UNSORTED_ID);
+      expect(a.missions.flatMap((m) => m.tabIds).sort()).toEqual(tabs.map((t) => t.id).sort());
+      expect(a.verdicts[id('Lenovo')]!.evidence[0]!.code).toBe('model');
+    });
+
+    it("keeps the user's Chrome groups fixed but lets the model add tabs to them by name", async () => {
+      const tabs = pile();
+      const id = (p: string) => tabs.find((t) => t.title.startsWith(p))!.id;
+      const grouped = tabs.map((t) => (t.title.startsWith('Fix receipt') || t.title.startsWith('Receipts fail') ? { ...t, groupId: 5 } : t));
+      let sent: number[] = [];
+      const a = await analyze({
+        tabs: grouped, rules: [], groups: new Map([[5, { title: 'Work: Expense app' }]]), settings, now: NOW,
+        organizer: async (req) => {
+          sent = req.tabs.map((t) => t.id);
+          expect(req.fixed.map((f) => f.name)).toContain('Work: Expense app');
+          // The model tries to steal a grouped tab and adds the repo home to the user's mission.
+          return { missions: [{ name: 'Work: Expense app', intent: '', kind: 'work', confidence: 1, tabIds: [id('acme/expense-app'), id('Fix receipt')] }], unsorted: [] };
+        },
+      });
+      expect(sent).not.toContain(id('Fix receipt'));
+      const m = a.missions.find((x) => x.name === 'Work: Expense app')!;
+      expect(m.source).toBe('user');
+      expect(m.tabIds).toEqual(expect.arrayContaining([id('Fix receipt'), id('Receipts fail'), id('acme/expense-app')]));
+    });
+
+    it('falls back to heuristic missions when the model fails', async () => {
+      const a = await analyze({ tabs: pile(), rules: [], groups: new Map(), settings, now: NOW, organizer: async () => { throw new Error('quota'); } });
+      expect(a.engine).toBe('heuristic');
+      expect(a.missions.filter((m) => m.id !== UNSORTED_ID).length).toBeGreaterThan(1);
+    });
+
+    it('passes previous names so missions keep their names', async () => {
+      let previous: string[] = [];
+      await analyze({
+        tabs: pile(), rules: [], groups: new Map(), settings, now: NOW,
+        previous: [{ id: 'x', name: 'Comparing laptops', intent: '', kind: 'personal', color: 'blue', tabIds: [], confidence: 1, source: 'model', keywords: [] }],
+        organizer: async (req) => {
+          previous = req.previous;
+          return { missions: [], unsorted: req.tabs.map((t) => t.id) };
+        },
+      });
+      expect(previous).toEqual(['Comparing laptops']);
+    });
+  });
+
   it("doesn't chain unrelated tabs through Chrome's opener", async () => {
     const tabs = pile();
     // Every tab "opened from" the one before it, as Chrome reports for Ctrl+T tabs.

@@ -108,6 +108,37 @@ describe('TabLens API', () => {
     expect(r.headers.get('Retry-After')).toBe('60');
   });
 
+  it('organises tabs, keeping only ids it was sent', async () => {
+    const gen: Generate = async ({ schema, user }) => {
+      expect(user).toContain('Fixed missions:');
+      return schema.parse({
+        missions: [
+          { name: 'Comparing laptops.', intent: 'Buying a laptop', kind: 'personal', confidence: 0.9, tabIds: [1, 2, 99] },
+          { name: 'Lonely', intent: '', kind: 'work', confidence: 0.5, tabIds: [3] },
+          { name: 'Work: Expense app', intent: '', kind: 'work', confidence: 1, tabIds: [4, 1] },
+        ],
+        unsorted: [],
+      });
+    };
+    const tab = (id: number, title: string) => ({ id, title, site: 'x.com', pageType: 'article', summary: '', hint: 'c1' });
+    const r = await handle(
+      req('/v1/organize', { method: 'POST', body: JSON.stringify({ tabs: [tab(1, 'MacBook'), tab(2, 'ThinkPad'), tab(3, 'News'), tab(4, 'PR #42')], fixed: [{ name: 'Work: Expense app', examples: ['PR #41'] }], previous: [] }) }),
+      env(),
+      gen,
+    );
+    const out = (await r.json()) as { missions: { name: string; tabIds: number[] }[]; unsorted: number[] };
+    expect(out.missions).toEqual([expect.objectContaining({ name: 'Comparing laptops', tabIds: [1, 2] }), expect.objectContaining({ name: 'Work: Expense app', tabIds: [4] })]);
+    expect(out.unsorted).toEqual([3]);
+  });
+
+  it('rejects organise requests over the tab limit', async () => {
+    const gen = vi.fn() as unknown as Generate;
+    const tabs = Array.from({ length: 301 }, (_, i) => ({ id: i, title: 't', site: 's', pageType: 'other', summary: '' }));
+    const r = await handle(req('/v1/organize', { method: 'POST', body: JSON.stringify({ tabs, fixed: [], previous: [] }) }), env(), gen);
+    expect(r.status).toBe(400);
+    expect(gen).not.toHaveBeenCalled();
+  });
+
   it('summarises a page', async () => {
     const gen: Generate = async ({ schema }) => schema.parse({ summary: 'A review of the M4 MacBook Air.', topics: ['laptops', 'apple'] });
     const r = await handle(

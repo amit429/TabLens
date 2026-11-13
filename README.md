@@ -102,12 +102,12 @@ Bookmarks record *what*, never *why*. The Library fixes that:
 
 ## AI: Gemini, built in — no API key for users
 
-Grouping works with no AI at all — rules, your existing Chrome groups, repositories, opener chains and TF-IDF similarity over page content. AI **names missions**, writes their one-line intent, **merges clusters that are really one task**, places leftover tabs, and **summarises pages** in the dossier.
+With TabLens AI on (one click during setup), **Gemini organises your tabs from the very first analysis**: it sees a short descriptor of every tab and decides the missions — which tabs belong together across sites and windows, what each is called, work or personal — and summarises pages in the dossier. Your own Chrome groups, board moves and renames are passed in as fixed missions: Gemini can add tabs to them but never takes tabs away or renames them. Heuristics (rules, repositories, opener chains, TF-IDF over page content) give an instant first draft, keep new tabs in their groups between AI runs, and take over if Gemini is unavailable.
 
 | Engine | What runs | What leaves your browser |
 | --- | --- | --- |
-| **Gemini Nano** (on device) | Chrome's built-in Prompt API, used first when the machine supports it | Nothing |
-| **TabLens AI** (asked once, during setup) | [TabLens API](server/) — a small Cloudflare Worker that holds the Gemini key and calls Gemini | A short descriptor per tab: title, site, page type and ≤100 words of summary. Never full pages, form data or history; nothing is stored or logged |
+| **TabLens AI** (asked once, during setup) | [TabLens API](server/) — a small Cloudflare Worker that holds the Gemini key; Gemini organises the whole tab pile in one call. Runs on setup, Re-analyse, daily, and when 4+ unplaced tabs pile up (at most every 10 min) | A short descriptor per tab: title, site, page type and a short summary. Never full pages, form data or history; nothing is stored or logged |
+| **Gemini Nano** (on device, when TabLens AI is off) | Chrome's built-in Prompt API names the heuristic missions (its context is too small to organise a whole tab pile) | Nothing |
 | **Off** | Heuristic names | Nothing |
 
 ```

@@ -6,6 +6,11 @@ import {
   INSTALL_HEADER,
   NameMissionsRequestSchema,
   NamerSchema,
+  ORGANIZE_PROMPT,
+  OrganizeRequestSchema,
+  OrganizeSchema,
+  buildOrganizePrompt,
+  sanitizeOrganize,
   SUMMARY_PROMPT,
   SYSTEM_PROMPT,
   SummarizeRequestSchema,
@@ -16,7 +21,7 @@ import {
   type HealthInfo,
   type QuotaInfo,
 } from '../../src/lib/ai/contract';
-import { geminiGenerator, UpstreamError, type Generate } from './gemini';
+import { geminiGenerator, mockGenerator, UpstreamError, type Generate } from './gemini';
 
 /**
  * TabLens API. A deliberately narrow proxy in front of Gemini:
@@ -44,7 +49,9 @@ type Kind = 'naming' | 'summaries';
 
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
-    return handle(request, env, geminiGenerator(env.GEMINI_API_KEY, env.GEMINI_MODEL));
+    // GEMINI_API_KEY=mock gives deterministic fake answers for local development and e2e tests.
+    const generate = env.GEMINI_API_KEY === 'mock' ? mockGenerator() : geminiGenerator(env.GEMINI_API_KEY, env.GEMINI_MODEL);
+    return handle(request, env, generate);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -53,7 +60,7 @@ export async function handle(request: Request, env: Env, generate: Generate): Pr
   const origin = request.headers.get('Origin') ?? '';
 
   if (url.pathname === API_PATHS.health && request.method === 'GET') {
-    return json<HealthInfo>({ ok: !!env.GEMINI_API_KEY, model: env.GEMINI_MODEL }, 200, corsFor(origin, request.headers.get(EXTENSION_HEADER), env));
+    return json<HealthInfo>({ ok: !!env.GEMINI_API_KEY, model: env.GEMINI_API_KEY === 'mock' ? 'mock' : env.GEMINI_MODEL }, 200, corsFor(origin, request.headers.get(EXTENSION_HEADER), env));
   }
 
   const cors = corsFor(origin, request.headers.get(EXTENSION_HEADER), env);
@@ -70,6 +77,16 @@ export async function handle(request: Request, env: Env, generate: Generate): Pr
   try {
     if (url.pathname === API_PATHS.quota && request.method === 'GET') {
       return json<QuotaInfo>(await quota(env, install), 200, cors);
+    }
+
+    if (url.pathname === API_PATHS.organize && request.method === 'POST') {
+      const body = OrganizeRequestSchema.parse(await readJson(request));
+      if (!body.tabs.length) return json({ missions: [], unsorted: [] }, 200, cors);
+      const limited = await overQuota(env, install, 'naming');
+      if (limited) return limited(cors);
+      const out = await generate({ system: ORGANIZE_PROMPT, user: buildOrganizePrompt(body), schema: OrganizeSchema, maxOutputTokens: 16384 });
+      await bump(env, install, 'naming');
+      return json(sanitizeOrganize(out, body), 200, cors);
     }
 
     if (url.pathname === API_PATHS.nameMissions && request.method === 'POST') {

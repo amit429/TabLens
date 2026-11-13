@@ -294,7 +294,7 @@ function Ai({ s }: { s: S }) {
   }, [s.ai.cloudConsent, check]);
 
   const NANO_TEXT: Record<NanoStatus, [string, string]> = {
-    available: ['Ready', 'Gemini Nano is on this device. Mission names are generated locally; nothing leaves your computer.'],
+    available: ['Ready', 'Gemini Nano is on this device. When TabLens AI is off, it names missions locally; nothing leaves your computer.'],
     downloadable: ['Not downloaded', 'Chrome can download Gemini Nano (about 2–4 GB). It needs 22 GB free disk space and 16 GB RAM or a GPU with 4 GB+ VRAM.'],
     downloading: ['Downloading', 'Chrome is downloading Gemini Nano in the background.'],
     unavailable: ['Not available on this device', 'This computer doesn’t meet Gemini Nano’s hardware needs. TabLens AI covers it.'],
@@ -302,8 +302,8 @@ function Ai({ s }: { s: S }) {
   };
 
   return (
-    <Section id="ai" title="AI" hint="TabLens groups tabs without AI. Gemini names missions, writes their one-line intent, merges groups that are one task and summarises pages. No API key needed.">
-      <Row label="Mode" hint="Automatic uses Gemini Nano on this device when it's available, otherwise TabLens AI if it's on.">
+    <Section id="ai" title="AI" hint="With TabLens AI on, Gemini decides your missions from the first analysis — which tabs belong together and what to call them — and summarises pages. Your own Chrome groups, board moves and renames always win. No API key needed.">
+      <Row label="Mode" hint="Automatic uses TabLens AI when it's on; otherwise Gemini Nano on this device names missions; otherwise heuristics.">
         <Segmented<AiMode>
           value={s.ai.mode}
           onChange={(mode) => updateSettings({ ai: { mode } })}
@@ -352,7 +352,7 @@ function Ai({ s }: { s: S }) {
             <Sparkles className="size-4" /> TabLens AI (Gemini, hosted by TabLens)
           </span>
         }
-        hint="Sends a short descriptor per tab — title, site, page type and up to 100 words of summary — to TabLens's server, which asks Google Gemini and returns names. Never full page text, form data or your browsing history. Nothing is stored or logged."
+        hint="Sends a short descriptor per tab — title, site, page type and up to 100 words of summary — to TabLens's server, which asks Google Gemini to organise them. Runs on Re-analyse, once a day, and when several new tabs pile up (at most every 10 minutes). Never full page text, form data or your history; nothing is stored or logged."
       >
         <Switch checked={s.ai.cloudConsent} onCheckedChange={(v) => updateSettings({ ai: { cloudConsent: v } })} aria-label="Use TabLens AI" />
       </Row>

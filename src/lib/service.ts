@@ -1,7 +1,7 @@
 import type { GroupColor } from './types';
 import { analyze, buildPlan, UNSORTED_ID } from './analysis/analyze';
 import { colorFor, slug } from './analysis/naming';
-import { pickNamer } from './ai/router';
+import { pickEngine } from './ai/router';
 import { db, latestAnalysis } from './db';
 import { getSettings } from './settings';
 import type { Analysis, Mission, TabView } from './types';
@@ -49,9 +49,20 @@ export async function collectTabs(): Promise<{ tabs: TabView[]; groups: Map<numb
 
 let running: Promise<Analysis> | null = null;
 
+const AI_COOLDOWN_MS = 10 * 60_000;
+/** How many unplaced tabs (new since the last AI run, or Unsorted) make an automatic AI run worthwhile. */
+const AI_BACKLOG = 4;
+
+async function lastAiAttempt(): Promise<number> {
+  return ((await chrome.storage.local.get('lastAiAt')).lastAiAt as number | undefined) ?? 0;
+}
+
 /**
- * Runs an analysis. `fresh` (the Re-analyse button, the daily run) asks the AI to name missions;
- * otherwise names stick from the previous run and only the cheap heuristic pass runs.
+ * Runs an analysis. Gemini is used:
+ *  - on `fresh` runs (first run after setup, Re-analyse, the daily run), always;
+ *  - automatically when tabs pile up that no mission holds yet (new or Unsorted), at most every
+ *    10 minutes so a flaky network or a spent quota never turns tab switching into API calls.
+ * Otherwise the cheap heuristic pass runs and names stick from the last AI run.
  */
 export function runAnalysis(opts: { fresh?: boolean } = {}): Promise<Analysis> {
   if (running) return running;
@@ -59,19 +70,24 @@ export function runAnalysis(opts: { fresh?: boolean } = {}): Promise<Analysis> {
     try {
       const settings = await getSettings();
       const [{ tabs, groups }, rules, prev] = await Promise.all([collectTabs(), db.rules.toArray(), latestAnalysis()]);
-      const needsAi = opts.fresh || !prev || prev.engine === 'heuristic';
-      const { namer, engine } = needsAi ? await pickNamer(settings) : { namer: undefined, engine: prev!.engine };
+      const unplaced = prev ? tabs.filter((t) => !prev.verdicts[t.id] || prev.verdicts[t.id]!.missionId === UNSORTED_ID).length : tabs.length;
+      const cooledDown = Date.now() - (await lastAiAttempt()) > AI_COOLDOWN_MS;
+      const wantAi = opts.fresh || (cooledDown && (!prev || prev.engine === 'heuristic' || unplaced >= AI_BACKLOG));
+      const ai = wantAi ? await pickEngine(settings) : { engine: 'heuristic' as const };
+      if (ai.engine !== 'heuristic') await chrome.storage.local.set({ lastAiAt: Date.now() });
       const a = await analyze({
         tabs,
         rules,
         groups,
         settings,
-        namer,
-        engine: engine === 'heuristic' ? undefined : engine,
+        organizer: 'organizer' in ai ? ai.organizer : undefined,
+        namer: 'namer' in ai ? ai.namer : undefined,
+        engine: ai.engine === 'heuristic' ? undefined : ai.engine,
         previous: prev?.missions,
         sticky: opts.fresh ? 'user' : 'all',
       });
-      if (!namer && prev && prev.engine !== 'heuristic' && a.missions.some((m) => m.source === 'model')) a.engine = prev.engine;
+      // Between AI runs, keep showing which engine named the (sticky) missions.
+      if (a.engine === 'heuristic' && prev && prev.engine !== 'heuristic' && a.missions.some((m) => m.source === 'model')) a.engine = prev.engine;
       await saveAnalysis(a);
       return a;
     } finally {

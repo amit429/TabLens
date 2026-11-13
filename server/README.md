@@ -12,7 +12,8 @@ extension ──short tab descriptors──▶ TabLens API (this Worker, holds G
 | --- | --- |
 | `GET /v1/health` | `{ ok, model }` |
 | `GET /v1/quota` | Today's usage for this install |
-| `POST /v1/name-missions` | Names clusters of tabs, merges clusters that are one task, places unsorted tabs |
+| `POST /v1/organize` | LLM-first: assigns every tab to a mission (respecting the user's own missions) and names them — up to 300 tabs per call |
+| `POST /v1/name-missions` | Names pre-made clusters, merges clusters that are one task, places unsorted tabs |
 | `POST /v1/summarize` | Two-sentence page summary for the dossier |
 
 Prompts, request limits and response schemas live in [`src/lib/ai/contract.ts`](../src/lib/ai/contract.ts), shared with the extension.
@@ -32,7 +33,7 @@ Non-browser scripts can fake any header, so the caller check is a deterrent; the
 ```bash
 cd server
 pnpm install
-cp .dev.vars.example .dev.vars   # put your Gemini key in .dev.vars (git-ignored)
+cp .dev.vars.example .dev.vars   # your Gemini key (git-ignored), or GEMINI_API_KEY=mock for fake answers
 pnpm dev                         # http://localhost:8787
 pnpm test
 ```

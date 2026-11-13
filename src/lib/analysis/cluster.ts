@@ -19,12 +19,14 @@ export interface Cluster {
   tabIds: number[];
   /** Forced name from a rule or an existing Chrome group. */
   fixedName?: string;
-  source: 'rule' | 'user' | 'similarity';
+  source: 'rule' | 'user' | 'similarity' | 'model';
   /** Chrome group the cluster came from, if any. */
   groupId?: number;
   confidence: number;
   centroid: Vector;
   evidence: Map<number, Reason[]>;
+  /** Set for clusters the AI organiser created. */
+  model?: { intent: string; kind: 'work' | 'personal'; confidence: number };
 }
 
 export function describe(t: TabView): Descriptor {
@@ -88,7 +90,7 @@ export interface ClusterOptions {
  * user rules → titled Chrome groups the user made → same repository → opener chains →
  * TF-IDF similarity with a same-site bonus (average-linkage agglomerative merge).
  */
-export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opts: ClusterOptions): Cluster[] {
+export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opts: ClusterOptions): { clusters: Cluster[]; vectors: Map<number, Vector> } {
   const clusters: Cluster[] = [];
   const assigned = new Set<number>();
   const byId = new Map(tabs.map((t) => [t.id, t]));
@@ -320,7 +322,7 @@ export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opt
       evidence: ev,
     });
   }
-  return clusters;
+  return { clusters, vectors: vec };
 }
 
 function clusterConfidence(ids: number[], vec: Map<number, Vector>, c: Vector, ev: Map<number, Reason[]>): number {

@@ -38,7 +38,7 @@ Page reading is optional and off until you allow it. Even when it's on, TabLens 
 ## AI
 
 - **Gemini Nano (on device):** when your browser supports Chrome's built-in AI, mission names and summaries are generated locally. Nothing leaves your device.
-- **TabLens AI (optional, asked once):** if you turn it on, TabLens sends a short descriptor per tab — title, site, page type and at most about 100 words of summary — to the TabLens API (a Cloudflare Worker run by TabLens), which forwards it to Google's Gemini API and returns mission names or a page summary. Full page text, form data and behaviour history are never sent. The TabLens API does not store or log this content. It keeps only a daily request count per install, keyed by a random install id that isn't linked to you, to enforce fair-use limits. Gemini processes requests under [Google's Gemini API terms](https://ai.google.dev/gemini-api/terms).
+- **TabLens AI (optional, asked once):** if you turn it on, TabLens sends a short descriptor per tab — title, site, page type and at most about 100 words of summary — to the TabLens API (a Cloudflare Worker run by TabLens), which forwards it to Google's Gemini API to organise your tabs into missions or summarise a page. Full page text, form data and behaviour history are never sent. The TabLens API does not store or log this content. It keeps only a daily request count per install, keyed by a random install id that isn't linked to you, to enforce fair-use limits. Gemini processes requests under [Google's Gemini API terms](https://ai.google.dev/gemini-api/terms).
 
 ## Bookmarks
 

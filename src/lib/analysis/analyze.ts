@@ -1,8 +1,9 @@
 import type { GroupColor } from '../types';
 import type { Settings } from '../settings';
-import type { Analysis, Mission, MissionKind, PageType, PlanItem, Rule, TabState, TabVerdict, TabView } from '../types';
+import type { Analysis, Mission, MissionKind, PageType, PlanItem, Reason, Rule, TabState, TabVerdict, TabView } from '../types';
 import { centroid, type Vector } from '../text';
-import { clusterTabs, describe, type Descriptor } from './cluster';
+import { clusterTabs, describe, type Cluster, type Descriptor } from './cluster';
+import { LIMITS, type OrganizeOutput, type OrganizeRequest } from '../ai/contract';
 import { colorFor, heuristicName, inferKind, intentLine, missionInsight, slug } from './naming';
 import { deriveState, engagementScores, findDuplicates } from './states';
 
@@ -24,6 +25,9 @@ export interface NamerResult {
 
 export type Namer = (clusters: NamerCluster[], unsorted: NamerCluster['tabs']) => Promise<NamerResult>;
 
+/** LLM-first organisation: the model assigns every free tab to a mission (see ai/contract.ts). */
+export type Organizer = (req: OrganizeRequest) => Promise<OrganizeOutput>;
+
 export interface AnalyzeInput {
   tabs: TabView[];
   rules: Rule[];
@@ -31,6 +35,8 @@ export interface AnalyzeInput {
   settings: Settings;
   now?: number;
   namer?: Namer;
+  /** When set, the model decides the missions; heuristics only provide hints and the fallback. */
+  organizer?: Organizer;
   engine?: Analysis['engine'];
   /**
    * Missions from the previous run. A new cluster that mostly overlaps a previous mission keeps its
@@ -108,10 +114,27 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   }
 
   // Missions.
-  let clusters = clusterTabs(tabs, descs, { rules: input.rules, similarity: settings.similarity, groups: input.groups });
-  const confident = clusters.filter((c) => c.confidence >= settings.confidenceThreshold || c.fixedName);
-  let unsortedIds = clusters.filter((c) => !confident.includes(c)).flatMap((c) => c.tabIds);
-  clusters = confident;
+  const clustered = clusterTabs(tabs, descs, { rules: input.rules, similarity: settings.similarity, groups: input.groups });
+  let clusters = clustered.clusters;
+  let unsortedIds: number[] = [];
+  let engine: Analysis['engine'] = 'heuristic';
+
+  // LLM-first: the organiser decides missions for every tab the user hasn't placed themselves.
+  let organized = false;
+  if (input.organizer) {
+    const result = await organizeWithModel(input, clusters, clustered.vectors, descs);
+    if (result) {
+      clusters = result.clusters;
+      unsortedIds = result.unsorted;
+      organized = true;
+      engine = input.engine ?? 'cloud';
+    }
+  }
+  if (!organized) {
+    const confident = clusters.filter((c) => c.confidence >= settings.confidenceThreshold || c.fixedName);
+    unsortedIds = clusters.filter((c) => !confident.includes(c)).flatMap((c) => c.tabIds);
+    clusters = confident;
+  }
 
   const names = new Map<string, { name: string; intent?: string; kind?: MissionKind; confidence?: number; source: Mission['source'] }>();
   const stuck = new Set<string>();
@@ -124,14 +147,18 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
       names.set(c.key, { name: prev.name, intent: prev.source === 'model' ? prev.intent : undefined, kind: prev.kind, source: prev.source });
       continue;
     }
+    if (c.source === 'model') {
+      const meta = c.model!;
+      names.set(c.key, { name: c.fixedName!, intent: meta.intent, kind: meta.kind, confidence: meta.confidence, source: 'model' });
+      continue;
+    }
     names.set(c.key, {
       name: c.fixedName ?? heuristicName(ds, c.centroid),
       source: c.source === 'rule' ? 'rule' : c.source === 'user' ? 'user' : 'heuristic',
     });
   }
 
-  let engine: Analysis['engine'] = 'heuristic';
-  if (input.namer) {
+  if (input.namer && !organized) {
     const free = clusters.filter((c) => c.source === 'similarity' && !stuck.has(c.key));
     const toNamer = (id: number) => {
       const d = descs.get(id)!;
@@ -259,6 +286,76 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
     plan: buildPlan(missions, verdicts, byId, input.groups),
     counts,
   };
+}
+
+/**
+ * Runs the organiser and turns its answer into clusters. Missions the user owns (their Chrome groups,
+ * rules, names they gave) stay fixed: the model can add tabs to them by name but not take tabs away.
+ * Returns null when the model fails, so the caller falls back to heuristics.
+ */
+async function organizeWithModel(input: AnalyzeInput, clusters: Cluster[], vectors: Map<number, Vector>, descs: Map<number, Descriptor>): Promise<{ clusters: Cluster[]; unsorted: number[] } | null> {
+  const fixed = clusters.filter((c) => c.fixedName);
+  const free = clusters.filter((c) => !c.fixedName);
+  const freeIds = free.flatMap((c) => c.tabIds).slice(0, LIMITS.organizeTabs);
+  if (!freeIds.length) return null;
+  const hintOf = new Map<number, string>();
+  for (const c of free) if (c.tabIds.length > 1) for (const id of c.tabIds) hintOf.set(id, `g${free.indexOf(c) + 1}`);
+  const userNames = (input.previous ?? []).filter((m) => m.source === 'user' && m.id !== UNSORTED_ID).map((m) => m.name);
+  const fixedNames = [...new Set([...fixed.map((c) => c.fixedName!), ...userNames])].slice(0, LIMITS.fixedMissions);
+  const req: OrganizeRequest = {
+    tabs: freeIds.map((id) => {
+      const d = descs.get(id)!;
+      return { id, title: d.title.slice(0, LIMITS.title), site: d.site.slice(0, LIMITS.site), pageType: d.pageType, summary: d.summary.slice(0, LIMITS.organizeSummary), hint: hintOf.get(id) };
+    }),
+    fixed: fixedNames.map((name) => ({
+      name: name.slice(0, LIMITS.name),
+      examples: (fixed.find((c) => c.fixedName === name)?.tabIds ?? []).slice(0, 3).map((id) => descs.get(id)!.title.slice(0, LIMITS.title)),
+    })),
+    previous: [...new Set((input.previous ?? []).filter((m) => m.source === 'model').map((m) => m.name))].slice(0, LIMITS.fixedMissions),
+  };
+  let res: OrganizeOutput;
+  try {
+    res = await input.organizer!(req);
+  } catch (err) {
+    console.warn('[TabLens] AI organisation failed, using heuristics', err);
+    return null;
+  }
+
+  const allowed = new Set(freeIds);
+  const placed = new Set<number>();
+  const heuristicEvidence = new Map<number, Reason[]>();
+  for (const c of free) for (const id of c.tabIds) heuristicEvidence.set(id, c.evidence.get(id) ?? []);
+  const out: Cluster[] = fixed.map((c) => ({ ...c, tabIds: [...c.tabIds], evidence: new Map(c.evidence) }));
+
+  for (const m of res.missions) {
+    const ids = m.tabIds.filter((id) => allowed.has(id) && !placed.has(id));
+    if (!ids.length) continue;
+    ids.forEach((id) => placed.add(id));
+    const target = out.find((c) => c.fixedName && c.fixedName.toLowerCase() === m.name.toLowerCase());
+    if (target) {
+      for (const id of ids) {
+        target.tabIds.push(id);
+        target.evidence.set(id, [{ code: 'model', text: `Gemini put it in your mission “${target.fixedName}”` }, ...(heuristicEvidence.get(id) ?? [])]);
+      }
+      target.centroid = centroid(target.tabIds.map((id) => vectors.get(id)!));
+      continue;
+    }
+    // A user-named mission that isn't a Chrome group or rule yet (renamed on the board).
+    const evidence = new Map(ids.map((id) => [id, [{ code: 'model', text: 'Gemini grouped it here from its title and content' }, ...(heuristicEvidence.get(id) ?? []).filter((r) => r.code !== 'terms')]]));
+    out.push({
+      key: 'ai:' + m.name.toLowerCase(),
+      tabIds: ids,
+      fixedName: m.name,
+      source: userNames.includes(m.name) ? 'user' : 'model',
+      confidence: m.confidence,
+      centroid: centroid(ids.map((id) => vectors.get(id)!)),
+      evidence,
+      model: { intent: m.intent, kind: m.kind, confidence: m.confidence },
+    });
+  }
+  // Tabs over the request limit, and any the model left out, go to Unsorted.
+  const overflow = free.flatMap((c) => c.tabIds).filter((id) => !allowed.has(id));
+  return { clusters: out, unsorted: [...freeIds.filter((id) => !placed.has(id)), ...overflow] };
 }
 
 /**

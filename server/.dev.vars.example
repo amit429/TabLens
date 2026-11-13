@@ -1,2 +1,3 @@
 # Copy to .dev.vars for `pnpm dev`. Never commit .dev.vars.
+# Use your real Gemini key, or GEMINI_API_KEY=mock for deterministic fake answers (no cost).
 GEMINI_API_KEY=your-gemini-api-key

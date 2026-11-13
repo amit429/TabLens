@@ -299,7 +299,13 @@ if (process.env.TABLENS_API) {
   assert.ok(st.quota && st.quota.naming.limit > 0, 'quota reported');
   const fresh = await rpc('analyze', { fresh: true });
   log('analysis engine with cloud on:', fresh.engine, '| missions:', fresh.missions.length);
-  if (process.env.TABLENS_EXPECT_GEMINI) assert.equal(fresh.engine, 'cloud', 'Gemini named the missions');
+  if (process.env.TABLENS_EXPECT_GEMINI) {
+    assert.equal(fresh.engine, 'cloud', 'Gemini organised the missions');
+    assert.ok(fresh.missions.some((m) => m.source === 'model'), 'missions come from the model');
+    log('AI missions:', fresh.missions.map((m) => `${m.name} (${m.tabIds.length})`).join(' | '));
+    // Missions the user grouped in Chrome earlier in this run stay theirs.
+    assert.ok(fresh.missions.some((m) => (m.source === 'user' || m.source === 'rule') && !m.name.startsWith('Mock:')), 'user-owned mission kept as fixed');
+  }
   else assert.ok(fresh.missions.length > 1, 'falls back to heuristic names when Gemini fails');
 }
 log('all assertions passed');

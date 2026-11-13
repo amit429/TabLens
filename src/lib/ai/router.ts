@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Namer } from '../analysis/analyze';
+import type { Namer, Organizer } from '../analysis/analyze';
 import { updateSettings, type Settings } from '../settings';
 import type { Snapshot } from '../types';
 import {
@@ -8,13 +8,14 @@ import {
   INSTALL_HEADER,
   LIMITS,
   NamerSchema,
+  OrganizeSchema,
   SUMMARY_PROMPT,
   SYSTEM_PROMPT,
   SummarySchema,
   buildSummaryInput,
   buildUserPrompt,
-  clampRequest,
   sanitize,
+  sanitizeOrganize,
   type HealthInfo,
   type QuotaInfo,
   type SummarizeRequest,
@@ -116,11 +117,11 @@ async function call<T>(settings: Settings, path: string, init: { method: 'GET' |
   return (await res.json()) as T;
 }
 
-function cloudNamer(settings: Settings): Namer {
-  return async (clusters, unsorted) => {
-    const body = clampRequest(clusters, unsorted);
-    const out = await call<z.infer<typeof NamerSchema>>(settings, API_PATHS.nameMissions, { method: 'POST', body });
-    return sanitize(NamerSchema.parse(out), body.clusters);
+/** LLM-first: TabLens AI (Gemini) decides the missions for the whole tab pile in one call. */
+function cloudOrganizer(settings: Settings): Organizer {
+  return async (req) => {
+    const out = await call<z.infer<typeof OrganizeSchema>>(settings, API_PATHS.organize, { method: 'POST', body: req, timeoutMs: 60_000 });
+    return sanitizeOrganize(OrganizeSchema.parse(out), req);
   };
 }
 
@@ -170,10 +171,17 @@ export async function summarize(settings: Settings, snap: Snapshot): Promise<{ s
   return null;
 }
 
-export async function pickNamer(settings: Settings): Promise<{ namer?: Namer; engine: 'nano' | 'cloud' | 'heuristic' }> {
+/**
+ * Picks the AI path for an analysis:
+ *  - TabLens AI (consented): Gemini organises every tab into missions (LLM-first);
+ *  - otherwise Gemini Nano on device names the heuristic clusters (its context is too small to see
+ *    a whole tab pile at once);
+ *  - otherwise heuristics only.
+ */
+export async function pickEngine(settings: Settings): Promise<{ organizer?: Organizer; namer?: Namer; engine: 'nano' | 'cloud' | 'heuristic' }> {
   const mode = settings.ai.mode;
   if (mode === 'off') return { engine: 'heuristic' };
+  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) return { organizer: cloudOrganizer(settings), engine: 'cloud' };
   if ((mode === 'auto' || mode === 'nano') && (await nanoStatus()) === 'available') return { namer: nanoNamer, engine: 'nano' };
-  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) return { namer: cloudNamer(settings), engine: 'cloud' };
   return { engine: 'heuristic' };
 }

@@ -42,6 +42,8 @@ export default defineBackground({
       if (p.origins?.length) {
         await ensureContentScripts();
         await injectIntoOpenTabs();
+        // Once pages have been read, organise again with their content, not just titles.
+        scheduleFreshAnalysis(15_000);
       }
     });
     chrome.permissions.onRemoved.addListener(async (p) => {
@@ -266,6 +268,19 @@ function scheduleAnalysis(ms = 2500) {
     () =>
       runAnalysis()
         // Keep already-grouped missions grouped in Chrome as new tabs join them.
+        .then((a) => ex.syncGroups(a))
+        .catch((e) => console.warn('[TabLens] analysis failed', e)),
+    ms,
+  );
+}
+
+let freshTimer: ReturnType<typeof setTimeout> | undefined;
+/** A full AI analysis (Gemini organises the missions), e.g. after page reading is switched on. */
+function scheduleFreshAnalysis(ms: number) {
+  clearTimeout(freshTimer);
+  freshTimer = setTimeout(
+    () =>
+      runAnalysis({ fresh: true })
         .then((a) => ex.syncGroups(a))
         .catch((e) => console.warn('[TabLens] analysis failed', e)),
     ms,
