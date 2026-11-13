@@ -26,7 +26,7 @@ const EXPLAIN: Record<PlanItem['kind'], string> = {
   'close-duplicates': 'The other copy stays open.',
   'archive-abandoned': 'Closed and saved to the Archive. Restore any time.',
   'archive-stale': 'Not opened for a few days and barely used.',
-  'group-missions': 'Puts each mission into its own Chrome tab group.',
+  'group-missions': 'Puts each mission into a real Chrome tab group, across all your windows.',
 };
 
 /**

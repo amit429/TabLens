@@ -8,7 +8,8 @@ import { DossierView } from '@/components/dossier';
 import { SaveForm } from '@/components/save-dialog';
 import { Spectrum } from '@/components/spectrum';
 import { GROUP_COLOR_VAR } from '@/components/tab-bits';
-import { useAnalysis, useChromeTabs, useLiveMissions } from '@/hooks/data';
+import { useAnalysis, useChromeGroups, useChromeTabs, useLiveMissions } from '@/hooks/data';
+import { isMissionGrouped } from '@/lib/analysis/analyze';
 import { rpc } from '@/lib/rpc';
 import { act } from '@/lib/ui-actions';
 
@@ -41,6 +42,7 @@ export default function App() {
   const tabs = useChromeTabs();
   const live = useLiveMissions(analysis, tabs);
   const active = useActiveTab();
+  const groups = useChromeGroups();
   const [view, setView] = React.useState<View>('tab');
 
   // The context menu "Save page to TabLens…" opens the panel on the Save view.
@@ -101,7 +103,7 @@ export default function App() {
           <ul className="space-y-2">
             {missions.map((m) => {
               const items = m.live.map((l) => ({ id: l.tab.id!, title: l.tab.title ?? '', url: l.tab.url, state: l.verdict?.state ?? 'active' }));
-              const grouped = m.groupId !== undefined && m.live.every((l) => l.tab.groupId === m.groupId);
+              const grouped = isMissionGrouped(m, m.live.map((l) => ({ groupId: l.tab.groupId ?? -1, pinned: l.tab.pinned })), groups);
               const hasActive = m.live.some((l) => l.tab.id === active?.id);
               return (
                 <li key={m.id} className={`rounded-[12px] border bg-card p-3 ${hasActive ? 'border-foreground/40' : 'border-border'}`}>

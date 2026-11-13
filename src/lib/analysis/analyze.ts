@@ -256,12 +256,21 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
     engine,
     missions,
     verdicts,
-    plan: buildPlan(missions, verdicts, byId),
+    plan: buildPlan(missions, verdicts, byId, input.groups),
     counts,
   };
 }
 
-export function buildPlan(missions: Mission[], verdicts: Record<number, TabVerdict>, tabs: Map<number, TabView>): PlanItem[] {
+/**
+ * A mission counts as grouped when every tab that can be grouped (not pinned) sits in a Chrome group
+ * carrying the mission's name — one group, or one per window.
+ */
+export function isMissionGrouped(m: Pick<Mission, 'name'>, tabs: { groupId: number; pinned: boolean }[], groups: Map<number, { title: string }>): boolean {
+  const groupable = tabs.filter((t) => !t.pinned);
+  return groupable.length > 0 && groupable.every((t) => t.groupId >= 0 && groups.get(t.groupId)?.title === m.name);
+}
+
+export function buildPlan(missions: Mission[], verdicts: Record<number, TabVerdict>, tabs: Map<number, TabView>, groups: Map<number, { title: string }> = new Map()): PlanItem[] {
   const by = (state: TabState) => Object.values(verdicts).filter((v) => v.state === state).map((v) => v.tabId);
   const plan: PlanItem[] = [];
   const dupes = by('duplicate');
@@ -278,8 +287,8 @@ export function buildPlan(missions: Mission[], verdicts: Record<number, TabVerdi
     if (m.id === UNSORTED_ID) return false;
     const staying = m.tabIds.filter((id) => !leaving.has(id));
     if (staying.length < 2) return false;
-    const gids = new Set(staying.map((id) => tabs.get(id)?.groupId));
-    return !(gids.size === 1 && m.groupId !== undefined && [...gids][0] === m.groupId);
+    const views = staying.map((id) => tabs.get(id)).filter((t): t is TabView => !!t);
+    return !isMissionGrouped(m, views, groups);
   });
   if (toGroup.length)
     plan.push({

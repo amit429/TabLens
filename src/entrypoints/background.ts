@@ -262,7 +262,14 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 /** Cheap heuristic re-analysis after tab changes; AI names stick from the last full run. */
 function scheduleAnalysis(ms = 2500) {
   clearTimeout(timer);
-  timer = setTimeout(() => runAnalysis().catch((e) => console.warn('[TabLens] analysis failed', e)), ms);
+  timer = setTimeout(
+    () =>
+      runAnalysis()
+        // Keep already-grouped missions grouped in Chrome as new tabs join them.
+        .then((a) => ex.syncGroups(a))
+        .catch((e) => console.warn('[TabLens] analysis failed', e)),
+    ms,
+  );
 }
 
 async function ensureContentScripts() {

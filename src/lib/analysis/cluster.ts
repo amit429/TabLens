@@ -192,11 +192,33 @@ export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opt
     const root = uf.find(t.id);
     comps.set(root, [...(comps.get(root) ?? []), t.id]);
   }
-  let groups = [...comps.values()].map((ids) => ({ ids, c: centroid(ids.map((id) => vec.get(id)!)), sites: new Set(ids.map((id) => descs.get(id)!.site)) }));
+  // Distinctive title words: in at least two titles but not in so many that they're generic.
+  // Short pages ("Cheap flights to Goa", "Goa hotels") often share only their subject, which
+  // cosine similarity alone under-weights.
+  const titleTokens = new Map(tabs.map((t) => [t.id, new Set(tokenize(descs.get(t.id)!.title).filter((w) => w.length >= 3))]));
+  const titleDf = new Map<string, number>();
+  for (const set of titleTokens.values()) for (const w of set) titleDf.set(w, (titleDf.get(w) ?? 0) + 1);
+  const maxDf = Math.max(2, Math.floor(tabs.length * 0.4));
+  const distinctive = (ids: number[]) => {
+    const out = new Set<string>();
+    for (const id of ids) for (const w of titleTokens.get(id) ?? []) if ((titleDf.get(w) ?? 0) >= 2 && (titleDf.get(w) ?? 0) <= maxDf && !siteWords.has(w)) out.add(w);
+    return out;
+  };
+  const siteWords = new Set(tabs.flatMap((t) => descs.get(t.id)!.site.split('.')));
+
+  let groups = [...comps.values()].map((ids) => ({ ids, c: centroid(ids.map((id) => vec.get(id)!)), sites: new Set(ids.map((id) => descs.get(id)!.site)), words: distinctive(ids), types: new Set(ids.map((id) => descs.get(id)!.pageType)) }));
 
   // 4. Agglomerative merge on centroid similarity with a same-site bonus.
   const simOf = (a: (typeof groups)[number], b: (typeof groups)[number]) => {
     let s = cosine(a.c, b.c);
+    let shared = 0;
+    for (const w of a.words) if (b.words.has(w)) shared++;
+    s += Math.min(0.24, shared * 0.12);
+    // Same specific kind of page (two product pages, two issues) nudges a little further.
+    if (a.types.size === 1 && b.types.size === 1) {
+      const [ta] = a.types;
+      if (ta && b.types.has(ta) && ['product', 'video', 'issue', 'docs'].includes(ta)) s += 0.04;
+    }
     for (const site of a.sites) {
       if (b.sites.has(site)) {
         const hint = siteHint('https://' + site);
@@ -229,6 +251,8 @@ export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opt
       const gj = groups[bj]!;
       gi.ids.push(...gj.ids);
       for (const s of gj.sites) gi.sites.add(s);
+      for (const w of gj.words) gi.words.add(w);
+      for (const t of gj.types) gi.types.add(t);
       gi.c = centroid(gi.ids.map((id) => vec.get(id)!));
       alive[bj] = false;
       for (let k = 0; k < n; k++) {
@@ -239,6 +263,34 @@ export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opt
       sizes[bi]! += sizes[bj]!;
     }
     groups = groups.filter((_, i) => alive[i]);
+  }
+
+  // New tabs joining existing missions: once missions are Chrome groups (or rules), they're fixed
+  // clusters, so a freshly opened tab would otherwise only ever cluster with other new tabs. Let a
+  // free group join the closest fixed cluster when it's similar enough.
+  const fixed = clusters.map((c) => ({ c, words: distinctive(c.tabIds), sites: new Set(c.tabIds.map((id) => descs.get(id)!.site)) }));
+  if (fixed.length) {
+    groups = groups.filter((g) => {
+      let best: (typeof fixed)[number] | undefined;
+      let bestSim = 0;
+      for (const f of fixed) {
+        let sim = cosine(g.c, f.c.centroid);
+        let shared = 0;
+        for (const w of g.words) if (f.words.has(w)) shared++;
+        sim += Math.min(0.24, shared * 0.12);
+        if (sim > bestSim) [best, bestSim] = [f, sim];
+      }
+      // A bigger free group is its own mission unless it's clearly the same thing.
+      const needed = g.ids.length >= 3 ? opts.similarity * 1.6 : opts.similarity;
+      if (!best || bestSim < needed) return true;
+      const name = best.c.fixedName ?? 'this mission';
+      for (const id of g.ids) {
+        best.c.tabIds.push(id);
+        best.c.evidence.set(id, [...(evidence.get(id) ?? []), { code: 'joined', text: `Similar to the tabs already in “${name}”` }]);
+      }
+      best.c.centroid = centroid(best.c.tabIds.map((id) => vec.get(id)!));
+      return false;
+    });
   }
 
   for (const g of groups) {

@@ -7,6 +7,7 @@ const STOP = new Set(
 /** Light plural folding so "laptops" and "laptop" match. Deliberately conservative. */
 export function stem(w: string): string {
   if (w.length > 4 && w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.length > 5 && /(ches|shes|xes|sses|zes)$/.test(w)) return w.slice(0, -2);
   if (w.length > 3 && w.endsWith('s') && !/(ss|us|is|os|as)$/.test(w)) return w.slice(0, -1);
   return w;
 }

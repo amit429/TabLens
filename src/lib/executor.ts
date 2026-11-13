@@ -6,6 +6,7 @@ import { editAnalysis, findMission, newMission, reassign } from './service';
 import type { Analysis, ArchiveEntry, Mission, Rule } from './types';
 import { hostnameOf, normalizeUrl } from './url';
 import { latestAnalysis } from './db';
+import { getSettings } from './settings';
 
 /**
  * The only module that changes tabs. Every function runs after an explicit click in a TabLens
@@ -87,57 +88,150 @@ export async function closeTabs(tabIds: number[], label?: string): Promise<UndoR
   return { undoId, count: tabs.length, message };
 }
 
-/** Puts a mission's tabs into one Chrome tab group (moving tabs across windows if needed). */
-async function groupMissionTabs(m: Mission, _a?: Analysis): Promise<{ ops: UndoOp[]; count: number; groupId?: number }> {
-  const tabs = (await getTabs(m.tabIds)).filter((t) => !t.pinned);
-  if (!tabs.length) return { ops: [], count: 0 };
+/** Windows that can hold tab groups. Popup and app windows can't, so their tabs are left alone. */
+async function normalWindowIds(): Promise<Set<number>> {
+  const wins = await chrome.windows.getAll({ windowTypes: ['normal'] });
+  return new Set(wins.map((w) => w.id!).filter((id) => id !== undefined));
+}
+
+/** Tabs of a mission that Chrome is able to group: not pinned, in a normal window. */
+async function groupableTabs(m: Mission): Promise<chrome.tabs.Tab[]> {
+  const normal = await normalWindowIds();
+  return (await getTabs(m.tabIds)).filter((t) => !t.pinned && normal.has(t.windowId));
+}
+
+/** The group in `windowId` that already represents this mission, if any. */
+async function missionGroupIn(m: Mission, windowId: number): Promise<chrome.tabGroups.TabGroup | undefined> {
+  const known = await groupInfo(m.groupId);
+  if (known && known.windowId === windowId) return known;
+  return (await chrome.tabGroups.query({ windowId, title: m.name }))[0];
+}
+
+/**
+ * Puts a mission's tabs into real Chrome tab groups across every window.
+ *
+ * Chrome groups can't span windows, and tabs can't move between normal and incognito windows, so tabs
+ * are first split by profile (normal / incognito). Then, per the user's setting:
+ *  - 'gather': one group per mission — tabs from other windows move into the window that already has
+ *    the mission's group, or else the window holding most of its tabs;
+ *  - 'per-window': nothing moves — each window gets its own group with the mission's name and colour.
+ */
+async function groupMissionTabs(m: Mission, mode: 'gather' | 'per-window'): Promise<{ ops: UndoOp[]; count: number; groupIds: number[] }> {
+  const tabs = await groupableTabs(m);
+  if (!tabs.length) return { ops: [], count: 0, groupIds: [] };
   const before = tabs.map((t) => ({ tabId: t.id!, groupId: t.groupId ?? -1, windowId: t.windowId, index: t.index }));
   const created: number[] = [];
+  const restored: Extract<UndoOp, { kind: 'restore-groups' }>['groups'] = [];
+  const groupIds: number[] = [];
 
-  let group = await groupInfo(m.groupId);
-  if (!group) {
-    // Reuse a group that already has this title, else target the window holding most of the tabs.
-    const all = await chrome.tabGroups.query({ title: m.name });
-    group = all[0];
+  const byProfile = new Map<boolean, chrome.tabs.Tab[]>();
+  for (const t of tabs) byProfile.set(t.incognito, [...(byProfile.get(t.incognito) ?? []), t]);
+
+  for (const profileTabs of byProfile.values()) {
+    const buckets = new Map<number, chrome.tabs.Tab[]>();
+    if (mode === 'per-window') {
+      for (const t of profileTabs) buckets.set(t.windowId, [...(buckets.get(t.windowId) ?? []), t]);
+    } else {
+      // Prefer a window that already has this mission's group, then the one with most of its tabs.
+      const windows = [...new Set(profileTabs.map((t) => t.windowId))];
+      let target: number | undefined;
+      for (const w of windows) if (await missionGroupIn(m, w)) target ??= w;
+      if (target === undefined) {
+        const counts = new Map<number, number>();
+        for (const t of profileTabs) counts.set(t.windowId, (counts.get(t.windowId) ?? 0) + 1);
+        target = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]![0];
+      }
+      const strays = profileTabs.filter((t) => t.windowId !== target).map((t) => t.id!);
+      if (strays.length) await chrome.tabs.move(strays, { windowId: target, index: -1 });
+      buckets.set(target, profileTabs);
+    }
+
+    for (const [windowId, bucket] of buckets) {
+      const existing = await missionGroupIn(m, windowId);
+      const ids = bucket.map((t) => t.id!) as [number, ...number[]];
+      const gid = existing ? await chrome.tabs.group({ tabIds: ids, groupId: existing.id }) : await chrome.tabs.group({ tabIds: ids, createProperties: { windowId } });
+      if (existing) restored.push({ groupId: existing.id, title: existing.title, color: existing.color as GroupColor, collapsed: existing.collapsed });
+      else created.push(gid);
+      await chrome.tabGroups.update(gid, { title: m.name, color: m.color as chrome.tabGroups.Color });
+      groupIds.push(gid);
+    }
   }
-  let windowId = group?.windowId;
-  if (windowId === undefined) {
-    const counts = new Map<number, number>();
-    for (const t of tabs) counts.set(t.windowId, (counts.get(t.windowId) ?? 0) + 1);
-    windowId = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]![0];
-  }
-  const strays = tabs.filter((t) => t.windowId !== windowId).map((t) => t.id!);
-  if (strays.length) await chrome.tabs.move(strays, { windowId, index: -1 });
-  const ids = tabs.map((t) => t.id!) as [number, ...number[]];
-  const groupId = group ? await chrome.tabs.group({ tabIds: ids, groupId: group.id }) : await chrome.tabs.group({ tabIds: ids, createProperties: { windowId } });
-  if (!group) created.push(groupId);
-  const prevGroup = group ? { groupId: group.id, title: group.title, color: group.color as GroupColor, collapsed: group.collapsed } : undefined;
-  await chrome.tabGroups.update(groupId, { title: m.name, color: m.color as chrome.tabGroups.Color });
-  m.groupId = groupId;
+
+  m.groupId = groupIds[0];
   const ops: UndoOp[] = [{ kind: 'regroup', moves: before }];
   if (created.length) ops.push({ kind: 'ungroup-created', groupIds: created });
-  if (prevGroup) ops.push({ kind: 'restore-groups', groups: [prevGroup] });
-  return { ops, count: tabs.length, groupId };
+  if (restored.length) ops.push({ kind: 'restore-groups', groups: restored });
+  return { ops, count: tabs.length, groupIds };
 }
 
 export async function groupMissions(missionIds: string[]): Promise<UndoResult> {
   const ops: UndoOp[] = [];
   let count = 0;
   let groups = 0;
-  await editAnalysis(() => {}); // ensure plan is fresh
+  const failed: string[] = [];
   const a = await latestAnalysis();
   if (!a) throw new Error('Run an analysis first.');
+  const { crossWindow } = (await getSettings()).grouping;
   for (const id of missionIds) {
     const m = findMission(a, id);
     if (!m || m.id === UNSORTED_ID) continue;
-    const r = await groupMissionTabs(m, a);
-    ops.push(...r.ops);
-    count += r.count;
-    if (r.count) groups++;
+    // One mission failing (a tab closed mid-way, a window that went away) mustn't stop the rest.
+    try {
+      const r = await groupMissionTabs(m, crossWindow);
+      ops.push(...r.ops);
+      count += r.count;
+      if (r.count) groups++;
+    } catch (err) {
+      console.warn('[TabLens] grouping failed for', m.name, err);
+      failed.push(m.name);
+    }
   }
   await db.analyses.put(a);
-  const message = `Grouped ${plural(count, 'tab')} into ${plural(groups, 'mission')}`;
+  let message = `Grouped ${plural(count, 'tab')} into ${plural(groups, 'mission')}`;
+  if (failed.length) message += ` · couldn't group ${failed.join(', ')}`;
   return { undoId: ops.length ? await recordUndo(message, ops) : undefined, count, message };
+}
+
+/**
+ * Auto-sync: for missions the user has already grouped in Chrome, put newly matching tabs into the
+ * mission's group. Only extends groupings the user made (in per-window mode that can mean a same-named group in another
+ * window); never closes tabs or touches missions the user hasn't grouped.
+ */
+export async function syncGroups(a: Analysis): Promise<number> {
+  const s = await getSettings();
+  if (!s.grouping.autoSync) return 0;
+  const normal = await normalWindowIds();
+  const groups = new Map((await chrome.tabGroups.query({})).map((g) => [g.id, g]));
+  let added = 0;
+  for (const m of a.missions) {
+    if (m.id === UNSORTED_ID) continue;
+    const tabs = (await getTabs(m.tabIds)).filter((t) => !t.pinned && normal.has(t.windowId));
+    const inGroup = tabs.filter((t) => groups.get(t.groupId ?? -1)?.title === m.name);
+    // Only missions the user grouped (at least two tabs already in a group with the mission's name).
+    if (inGroup.length < 2) continue;
+    const loose = tabs.filter((t) => (t.groupId ?? -1) < 0);
+    for (const t of loose) {
+      const g = inGroup.find((x) => x.windowId === t.windowId && !x.incognito === !t.incognito);
+      if (g) {
+        await chrome.tabs.group({ tabIds: t.id!, groupId: g.groupId }).catch(() => {});
+        added++;
+      } else if (s.grouping.crossWindow === 'gather') {
+        const target = inGroup.find((x) => !x.incognito === !t.incognito);
+        if (!target) continue;
+        await chrome.tabs.move(t.id!, { windowId: target.windowId, index: -1 }).catch(() => {});
+        await chrome.tabs.group({ tabIds: t.id!, groupId: target.groupId }).catch(() => {});
+        added++;
+      } else {
+        // Per-window: the mission is grouped elsewhere, so give it a same-named group in this window too.
+        const gid = await chrome.tabs.group({ tabIds: t.id!, createProperties: { windowId: t.windowId } }).catch(() => undefined);
+        if (gid === undefined) continue;
+        await chrome.tabGroups.update(gid, { title: m.name, color: m.color as chrome.tabGroups.Color });
+        inGroup.push({ ...t, groupId: gid });
+        added++;
+      }
+    }
+  }
+  return added;
 }
 
 export async function applyPlan(p: { closeIds: number[]; archiveIds: number[]; groupMissionIds: string[] }): Promise<UndoResult> {
@@ -194,7 +288,7 @@ export async function moveTabToMission(tabId: number, missionId: string, beforeT
     if (!m) throw new Error('That mission no longer exists. Re-analyse and try again.');
     reassign(a, tabId, missionId, beforeTabId);
     // The mission now includes the dropped tab, so this captures its previous position too.
-    ops = (await groupMissionTabs(m, a)).ops;
+    ops = (await groupMissionTabs(m, (await getSettings()).grouping.crossWindow)).ops;
     // Reorder within the group to match the card position.
     if (beforeTabId !== undefined) {
       const target = await chrome.tabs.get(beforeTabId).catch(() => undefined);
@@ -382,9 +476,11 @@ export async function wakeSnoozed(batchId: string) {
 export async function undo(undoId: string): Promise<{ ok: boolean }> {
   const entry = await db.undo.get(undoId);
   if (!entry) return { ok: false };
+  // Windows recreated during this undo, shared by every step so tabs from one window stay together.
+  const recreated = new Map<number, number>();
   for (const op of [...entry.ops].reverse()) {
     try {
-      await runInverse(op);
+      await runInverse(op, recreated);
     } catch (err) {
       console.warn('[TabLens] undo step failed', op.kind, err);
     }
@@ -393,7 +489,7 @@ export async function undo(undoId: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-async function runInverse(op: UndoOp) {
+async function runInverse(op: UndoOp, recreated: Map<number, number>) {
   switch (op.kind) {
     case 'reopen': {
       const windows = new Set((await chrome.windows.getAll()).map((w) => w.id));
@@ -424,14 +520,31 @@ async function runInverse(op: UndoOp) {
       break;
     }
     case 'regroup': {
-      for (const mv of op.moves) {
+      // Gathering can empty a window, and Chrome closes empty windows. Recreate any window that's
+      // gone so every tab goes back to a window of its own, in its original order.
+      const open = new Set((await chrome.windows.getAll()).map((w) => w.id));
+      const moves = [...op.moves].sort((x, y) => x.windowId - y.windowId || x.index - y.index);
+      for (const mv of moves) {
         const t = await chrome.tabs.get(mv.tabId).catch(() => undefined);
         if (!t) continue;
-        if (t.windowId !== mv.windowId) await chrome.tabs.move(mv.tabId, { windowId: mv.windowId, index: mv.index }).catch(() => {});
-        if (mv.groupId >= 0 && (await groupInfo(mv.groupId))) await chrome.tabs.group({ tabIds: mv.tabId, groupId: mv.groupId });
-        else if ((t.groupId ?? -1) >= 0) await chrome.tabs.ungroup(mv.tabId);
-        await chrome.tabs.move(mv.tabId, { index: mv.index }).catch(() => {});
+        let windowId = mv.windowId;
+        if (!open.has(windowId)) {
+          const existing = recreated.get(windowId);
+          if (existing === undefined) {
+            if ((t.groupId ?? -1) >= 0) await chrome.tabs.ungroup(mv.tabId).catch(() => {});
+            const w = await chrome.windows.create({ tabId: mv.tabId, focused: false });
+            recreated.set(mv.windowId, w!.id!);
+            continue;
+          }
+          windowId = existing;
+        }
+        if (t.windowId !== windowId) await chrome.tabs.move(mv.tabId, { windowId, index: -1 }).catch(() => {});
+        const now = await chrome.tabs.get(mv.tabId).catch(() => undefined);
+        if (mv.groupId >= 0 && (await groupInfo(mv.groupId))) await chrome.tabs.group({ tabIds: mv.tabId, groupId: mv.groupId }).catch(() => {});
+        else if ((now?.groupId ?? -1) >= 0) await chrome.tabs.ungroup(mv.tabId).catch(() => {});
       }
+      // Restore positions within each window once everything is back.
+      for (const mv of moves) await chrome.tabs.move(mv.tabId, { index: mv.index }).catch(() => {});
       break;
     }
     case 'ungroup-created': {

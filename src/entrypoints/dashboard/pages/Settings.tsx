@@ -22,6 +22,7 @@ import { cn } from '@/lib/cn';
 
 const SECTIONS = [
   { id: 'general', label: 'General' },
+  { id: 'grouping', label: 'Grouping' },
   { id: 'analysis', label: 'Analysis' },
   { id: 'ai', label: 'AI' },
   { id: 'privacy', label: 'Privacy' },
@@ -61,6 +62,7 @@ export default function Settings() {
       </nav>
       <div className="min-w-0 flex-1 space-y-12 pb-24">
         <General s={s} />
+        <Grouping s={s} />
         <Analysis s={s} />
         <Ai s={s} />
         <Privacy s={s} />
@@ -142,6 +144,33 @@ function General({ s }: { s: S }) {
         <Button variant="outline" onClick={() => chrome.tabs.create({ url: 'chrome://extensions/shortcuts' })}>
           Change shortcuts
         </Button>
+      </Row>
+    </Section>
+  );
+}
+
+function Grouping({ s }: { s: S }) {
+  return (
+    <Section id="grouping" title="Grouping" hint="How missions become real Chrome tab groups. Tabs in every browser window are included; pinned tabs and popup windows are left alone.">
+      <Row
+        label="Missions spread across windows"
+        hint={
+          s.grouping.crossWindow === 'gather'
+            ? 'Gather: tabs move into the window that already has the mission (or holds most of it), so each mission is one group.'
+            : 'Per window: nothing moves between windows; each window gets its own group with the mission’s name and colour.'
+        }
+      >
+        <Segmented
+          value={s.grouping.crossWindow}
+          onChange={(crossWindow) => updateSettings({ grouping: { crossWindow } })}
+          options={[
+            { value: 'gather', label: 'Gather into one window' },
+            { value: 'per-window', label: 'Group in each window' },
+          ]}
+        />
+      </Row>
+      <Row label="Keep groups in sync" hint="Once you've grouped a mission, new tabs that belong to it join its Chrome group automatically. TabLens never creates groups or closes tabs on its own.">
+        <Switch checked={s.grouping.autoSync} onCheckedChange={(v) => updateSettings({ grouping: { autoSync: v } })} aria-label="Keep groups in sync" />
       </Row>
     </Section>
   );

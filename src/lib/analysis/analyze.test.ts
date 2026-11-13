@@ -167,6 +167,41 @@ describe('analyze', () => {
     for (const id of repo.tabIds) expect(m.tabIds).toContain(id);
   });
 
+  it('groups short titles that share only their subject', async () => {
+    resetIds();
+    const tabs = [
+      tab('https://www.booking.com/searchresults.html?ss=Goa', 'Goa hotels: beach hotels in North Goa - Booking.com'),
+      tab('https://www.skyscanner.co.in/transport/flights/blr/goi/', 'Cheap flights from Bengaluru to Goa - Skyscanner'),
+      tab('https://www.tripadvisor.in/Attractions-Goa.html', 'Things to do in Goa: beaches and forts - Tripadvisor'),
+      tab('https://github.com/acme/expense-app/pull/42', 'Fix receipt upload on Safari · Pull Request #42 · acme/expense-app'),
+      tab('https://github.com/acme/expense-app/issues/17', 'Receipts fail to upload on Safari · Issue #17 · acme/expense-app'),
+      tab('https://www.theverge.com/reviews/macbook-air-m4-review', 'MacBook Air M4 review: the best laptop battery life'),
+      tab('https://www.notebookcheck.net/Dell-XPS-13-laptop-review.html', 'Dell XPS 13 laptop review: battery life and display'),
+      tab('https://www.amazon.in/Lenovo-ThinkPad-X1-Carbon-Laptop/dp/B0D1', 'Lenovo ThinkPad X1 Carbon laptop : Amazon.in'),
+    ];
+    const a = await run(tabs);
+    const m = (i: number) => a.verdicts[tabs[i]!.id]!.missionId;
+    expect(m(0)).toBe(m(1));
+    expect(m(1)).toBe(m(2));
+    expect(m(0)).not.toBe('unsorted');
+    expect(m(5)).toBe(m(7));
+    expect(m(0)).not.toBe(m(5));
+    expect(m(3)).not.toBe(m(5));
+  });
+
+  it('lets a new tab join a mission that is already a Chrome group', async () => {
+    const tabs = pile();
+    const laptopIds = tabs.filter((t) => /MacBook|ThinkPad|Zenbook|Dell XPS|best laptops/.test(t.title)).map((t) => t.id);
+    const grouped = tabs.map((t) => (laptopIds.includes(t.id) ? { ...t, groupId: 9 } : t));
+    const late = tab('https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop', 'Lenovo Yoga 7 laptop review: battery life tested');
+    const a = await analyze({ tabs: [...grouped, late], rules: [], groups: new Map([[9, { title: 'Comparing laptops' }]]), settings, now: NOW });
+    const m = a.missions.find((x) => x.name === 'Comparing laptops')!;
+    expect(m.tabIds).toContain(late.id);
+    expect(a.verdicts[late.id]!.evidence.some((e) => e.code === 'joined')).toBe(true);
+    // Unrelated tabs don't get pulled in.
+    expect(m.tabIds).not.toContain(tabs.find((t) => t.title.startsWith('Fix receipt'))!.id);
+  });
+
   it("doesn't chain unrelated tabs through Chrome's opener", async () => {
     const tabs = pile();
     // Every tab "opened from" the one before it, as Chrome reports for Ctrl+T tabs.

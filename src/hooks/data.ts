@@ -87,3 +87,24 @@ export function useNow(intervalMs = 30_000) {
   }, [intervalMs]);
   return now;
 }
+
+/** Live map of Chrome tab groups across all windows. */
+export function useChromeGroups(): Map<number, { title: string; color: string; windowId: number }> {
+  const [groups, setGroups] = useState(new Map<number, { title: string; color: string; windowId: number }>());
+  useEffect(() => {
+    const refresh = () => chrome.tabGroups.query({}).then((gs) => setGroups(new Map(gs.map((g) => [g.id, { title: g.title ?? '', color: g.color, windowId: g.windowId }]))));
+    refresh();
+    const evs = [chrome.tabGroups.onCreated, chrome.tabGroups.onUpdated, chrome.tabGroups.onRemoved, chrome.tabGroups.onMoved] as chrome.events.Event<() => void>[];
+    evs.forEach((e) => e.addListener(refresh));
+    return () => evs.forEach((e) => e.removeListener(refresh));
+  }, []);
+  return groups;
+}
+
+/** "Window 2" style labels, numbered by window id order, for when tabs span several windows. */
+export function useWindowLabels(tabs: chrome.tabs.Tab[]): Map<number, string> {
+  return useMemo(() => {
+    const ids = [...new Set(tabs.map((t) => t.windowId))].sort((a, b) => a - b);
+    return new Map(ids.length > 1 ? ids.map((id, i) => [id, `Window ${i + 1}`]) : []);
+  }, [tabs]);
+}

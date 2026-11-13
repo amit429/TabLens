@@ -31,6 +31,16 @@ export interface Settings {
     pausedUntil: number;
     snapshotRetentionDays: number;
   };
+  grouping: {
+    /**
+     * Chrome tab groups live inside one window. When a mission's tabs are spread across windows:
+     * 'gather' moves them into the window holding most of them (one group per mission);
+     * 'per-window' leaves tabs where they are and creates a same-named group in each window.
+     */
+    crossWindow: 'gather' | 'per-window';
+    /** Once a mission is grouped in Chrome, add its new tabs to the group automatically. */
+    autoSync: boolean;
+  };
   features: {
     alreadyOpenNudge: boolean;
     weeklyDigest: boolean;
@@ -65,7 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   weights: { active: 0.4, scroll: 0.3, visits: 0.2, interactions: 0.1 },
   confidenceThreshold: 0.35,
-  similarity: 0.18,
+  similarity: 0.16,
   ai: { mode: 'auto', cloudConsent: false },
   privacy: {
     excludedDomains: [
@@ -78,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
     pausedUntil: 0,
     snapshotRetentionDays: 7,
   },
+  grouping: { crossWindow: 'gather', autoSync: true },
   features: { alreadyOpenNudge: true, weeklyDigest: true, dailyAnalysis: true, badge: true },
   onboarded: false,
   installedAt: 0,

@@ -22,14 +22,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Favicon, GROUP_COLOR_VAR, ReadDepth, STATE_META, StateChip } from '@/components/tab-bits';
-import type { LiveMission, LiveTab } from '@/hooks/data';
+import { useChromeGroups, useWindowLabels, type LiveMission, type LiveTab } from '@/hooks/data';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
 import { rpc } from '@/lib/rpc';
 import { act } from '@/lib/ui-actions';
 import { formatAgo } from '@/lib/analysis/states';
 import { GROUP_COLORS } from '@/lib/analysis/naming';
-import { UNSORTED_ID } from '@/lib/analysis/analyze';
+import { UNSORTED_ID, isMissionGrouped } from '@/lib/analysis/analyze';
 import { cn } from '@/lib/cn';
 import type { GroupColor, MissionKind, TabState } from '@/lib/types';
 
@@ -47,6 +47,9 @@ export default function Board() {
   const [activeId, setActiveId] = React.useState<number | null>(null);
   const [newMissionFor, setNewMissionFor] = React.useState<number[] | null>(null);
   const records = useLiveQuery(() => db.tabs.toArray(), []) ?? [];
+  const groups = useChromeGroups();
+  const windowLabels = useWindowLabels(tabs);
+  const grouped = (m: LiveMission) => isMissionGrouped(m, m.live.map((l) => ({ groupId: l.tab.groupId ?? -1, pinned: l.tab.pinned })), groups);
   const recById = React.useMemo(() => new Map(records.map((r) => [r.tabId, r])), [records]);
 
   const tabById = React.useMemo(() => new Map(tabs.map((t) => [t.id!, t])), [tabs]);
@@ -136,7 +139,7 @@ export default function Board() {
 
   const visible = missions.filter((m) => kind === 'all' || m.id === UNSORTED_ID || m.id === NEW_ID || m.kind === kind);
   const activeTab = activeId !== null ? tabById.get(activeId) : undefined;
-  const ungrouped = visible.filter((m) => m.id !== UNSORTED_ID && m.id !== NEW_ID && m.live.length > 1 && !(m.groupId !== undefined && m.live.every((l) => l.tab.groupId === m.groupId)));
+  const ungrouped = visible.filter((m) => m.id !== UNSORTED_ID && m.id !== NEW_ID && m.live.length > 1 && !grouped(m));
 
   return (
     <div className="-mx-4 md:-mx-8">
@@ -178,19 +181,21 @@ export default function Board() {
             <Column
               key={m.id}
               mission={m}
+              grouped={grouped(m)}
+              windows={new Set(m.live.map((l) => l.tab.windowId)).size}
               ids={(columns[m.id] ?? []).filter(matches)}
               allMissions={missions}
               renderCard={(id) => {
                 const t = tabById.get(id);
                 if (!t) return null;
-                return <SortableCard key={id} id={id} tab={t} verdictState={verdictOf(id)?.state} record={recById.get(id)} onOpen={() => openDossier(id)} />;
+                return <SortableCard key={id} id={id} tab={t} verdictState={verdictOf(id)?.state} record={recById.get(id)} windowLabel={windowLabels.get(t.windowId)} onOpen={() => openDossier(id)} />;
               }}
             />
           ))}
         </div>
         <DropZones visible={activeId !== null} />
         <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' }}>
-          {activeTab ? <TabCard tab={activeTab} state={verdictOf(activeTab.id!)?.state} record={recById.get(activeTab.id!)} lifted /> : null}
+          {activeTab ? <TabCard tab={activeTab} state={verdictOf(activeTab.id!)?.state} record={recById.get(activeTab.id!)} windowLabel={windowLabels.get(activeTab.windowId)} lifted /> : null}
         </DragOverlay>
       </DndContext>
 
@@ -199,14 +204,13 @@ export default function Board() {
   );
 }
 
-function Column({ mission: m, ids, renderCard, allMissions }: { mission: LiveMission; ids: number[]; renderCard: (id: number) => React.ReactNode; allMissions: LiveMission[] }) {
+function Column({ mission: m, ids, renderCard, allMissions, grouped, windows }: { mission: LiveMission; ids: number[]; renderCard: (id: number) => React.ReactNode; allMissions: LiveMission[]; grouped: boolean; windows: number }) {
   const { setNodeRef, isOver } = useDroppable({ id: m.id, disabled: m.id === NEW_ID });
   const [editing, setEditing] = React.useState(false);
   const [name, setName] = React.useState(m.name);
   React.useEffect(() => setName(m.name), [m.name]);
   const special = m.id === UNSORTED_ID || m.id === NEW_ID;
   const canGo = m.live.filter((l) => l.verdict?.verdict === 'archive' || l.verdict?.verdict === 'close-duplicate').length;
-  const grouped = m.groupId !== undefined && m.live.length > 0 && m.live.every((l) => l.tab.groupId === m.groupId);
 
   const commit = async () => {
     setEditing(false);
@@ -261,6 +265,11 @@ function Column({ mission: m, ids, renderCard, allMissions }: { mission: LiveMis
             </Tooltip>
           )}
           {grouped && <Badge variant="accent">In Chrome group</Badge>}
+          {windows > 1 && (
+            <Tooltip content={grouped ? 'One group in each window — set in Settings → Grouping' : 'Grouping gathers these into one window, or groups them in each window — see Settings → Grouping'}>
+              <Badge variant="outline">{windows} windows</Badge>
+            </Tooltip>
+          )}
         </div>
         {m.live.length > 0 && <Spectrum items={m.live.map((l) => ({ id: l.tab.id!, title: l.tab.title ?? '', url: l.tab.url, state: l.verdict?.state ?? 'active' }))} height={8} className="rounded-full" />}
         {(m.insight || m.intent) && <p className="line-clamp-2 text-[12px] leading-snug text-muted-foreground">{m.insight ?? m.intent}</p>}
@@ -366,16 +375,16 @@ function ColorPicker({ value, onChange }: { value: GroupColor; onChange: (c: Gro
   );
 }
 
-function SortableCard({ id, tab, verdictState, record, onOpen }: { id: number; tab: chrome.tabs.Tab; verdictState?: TabState; record?: { maxScroll: number; formStarted: boolean }; onOpen: () => void }) {
+function SortableCard({ id, tab, verdictState, record, onOpen, windowLabel }: { id: number; tab: chrome.tabs.Tab; verdictState?: TabState; record?: { maxScroll: number; formStarted: boolean }; onOpen: () => void; windowLabel?: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }} className={cn(isDragging && 'opacity-30')} {...attributes} {...listeners}>
-      <TabCard tab={tab} state={verdictState} record={record} onOpen={onOpen} />
+      <TabCard tab={tab} state={verdictState} record={record} onOpen={onOpen} windowLabel={windowLabel} />
     </li>
   );
 }
 
-function TabCard({ tab, state, record, onOpen, lifted }: { tab: chrome.tabs.Tab; state?: TabState; record?: { maxScroll: number; formStarted: boolean; lastAccessed?: number }; onOpen?: () => void; lifted?: boolean }) {
+function TabCard({ tab, state, record, onOpen, lifted, windowLabel }: { tab: chrome.tabs.Tab; state?: TabState; record?: { maxScroll: number; formStarted: boolean; lastAccessed?: number }; onOpen?: () => void; lifted?: boolean; windowLabel?: string }) {
   // TabLens's own record is authoritative once it exists (see lastUsed in analysis/states).
   const last = record?.lastAccessed ?? (tab as chrome.tabs.Tab & { lastAccessed?: number }).lastAccessed ?? 0;
   return (
@@ -397,6 +406,7 @@ function TabCard({ tab, state, record, onOpen, lifted }: { tab: chrome.tabs.Tab;
         {state && <StateChip state={state} />}
         {last > 0 && <span className="whitespace-nowrap text-[11px] text-muted-foreground">{formatAgo(Date.now() - last)}</span>}
         <span className="ml-auto flex items-center gap-1.5 text-muted-foreground">
+          {windowLabel && <span className="whitespace-nowrap text-[11px]">{windowLabel}</span>}
           {tab.pinned && <Pin className="size-3" aria-label="Pinned" />}
           {tab.audible && <Volume2 className="size-3" aria-label="Playing audio" />}
           {record?.formStarted && <FormInput className="size-3 text-unfinished" aria-label="Form started" />}

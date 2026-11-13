@@ -68,6 +68,24 @@ export function siteLabel(site: string): string {
 
 const sentence = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
 
+/**
+ * Terms that describe the whole mission: words most of its tabs share come first ("laptop" over
+ * "zenbook"), ties broken by TF-IDF weight. Falls back to the strongest terms for one-tab missions.
+ */
+function sharedTerms(descs: Descriptor[], c: Vector, exclude: Set<string>, k = 3): string[] {
+  if (descs.length < 2) return topTerms(c, k, exclude);
+  const docCount = new Map<string, number>();
+  for (const d of descs) for (const t of new Set(d.tokens)) docCount.set(t, (docCount.get(t) ?? 0) + 1);
+  // Shared by at least half the tabs, then ranked by TF-IDF weight — so boilerplate that every page
+  // has (near-zero weight) never beats the real subject.
+  const half = Math.max(2, Math.ceil(descs.length / 2));
+  const shared = [...c.keys()]
+    .filter((t) => !exclude.has(t) && (docCount.get(t) ?? 0) >= half && (c.get(t) ?? 0) > 0.02)
+    .sort((a, b) => (c.get(b) ?? 0) - (c.get(a) ?? 0));
+  const rest = topTerms(c, k, new Set([...exclude, ...shared]));
+  return [...shared, ...rest].slice(0, k);
+}
+
 /** Heuristic mission name when no model is available. Sentence case, short, specific. */
 export function heuristicName(descs: Descriptor[], c: Vector): string {
   const repos = descs.map((d) => d.repo).filter(Boolean) as string[];
@@ -79,7 +97,7 @@ export function heuristicName(descs: Descriptor[], c: Vector): string {
   const siteTokens = new Set(descs.map((d) => d.site.split('.')[0]!));
   // Ticket-key prefixes ("EXP" in EXP-88) make poor names.
   for (const d of descs) for (const m of d.title.matchAll(/\b([a-z]{2,8})-\d+\b/gi)) siteTokens.add(m[1]!.toLowerCase());
-  const terms = topTerms(c, 3, siteTokens);
+  const terms = sharedTerms(descs, c, siteTokens);
   const query = descs.find((d) => d.query)?.query;
   // A search that started the mission is the best name there is.
   if (query && query.length <= 40) return sentence(query.toLowerCase());
@@ -107,7 +125,7 @@ function shortTitle(t: string): string {
 export function intentLine(tabs: TabView[], descs: Descriptor[], c: Vector): string {
   const sites = new Set(descs.map((d) => d.site));
   const siteTokens = new Set(descs.map((d) => d.site.split('.')[0]!));
-  const terms = topTerms(c, 3, siteTokens);
+  const terms = sharedTerms(descs, c, siteTokens);
   const opened = tabs.map((t) => t.record?.openedAt).filter(Boolean) as number[];
   const spanDays = opened.length > 1 ? Math.round((Math.max(...opened) - Math.min(...opened)) / 86_400_000) : 0;
   const parts = [`${tabs.length} tab${tabs.length === 1 ? '' : 's'}`];

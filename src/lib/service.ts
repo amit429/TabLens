@@ -9,7 +9,8 @@ import { hostnameOf, normalizeUrl } from './url';
 
 /** Builds the analysis input from live Chrome state plus stored behaviour and snapshots. */
 export async function collectTabs(): Promise<{ tabs: TabView[]; groups: Map<number, { title: string; color: GroupColor }> }> {
-  const [chromeTabs, chromeGroups] = await Promise.all([chrome.tabs.query({}), chrome.tabGroups.query({})]);
+  // Only normal windows: popup and app windows can't hold tab groups.
+  const [chromeTabs, chromeGroups] = await Promise.all([chrome.tabs.query({ windowType: 'normal' }), chrome.tabGroups.query({})]);
   const ids = chromeTabs.map((t) => t.id!).filter((id) => id !== undefined);
   const records = await db.tabs.bulkGet(ids);
   const recById = new Map(records.filter(Boolean).map((r) => [r!.tabId, r!]));
@@ -103,7 +104,8 @@ export async function editAnalysis(fn: (a: Analysis) => void): Promise<Analysis 
   const a = await latestAnalysis();
   if (!a) return undefined;
   fn(a);
-  a.plan = buildPlan(a.missions, a.verdicts, new Map((await collectTabs()).tabs.map((t) => [t.id, t])));
+  const { tabs, groups } = await collectTabs();
+  a.plan = buildPlan(a.missions, a.verdicts, new Map(tabs.map((t) => [t.id, t])), groups);
   await db.analyses.put(a);
   return a;
 }

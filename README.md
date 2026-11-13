@@ -35,6 +35,23 @@ Together they let TabLens say things like *"You opened 9 laptop tabs over 6 days
 
 <br clear="right">
 
+### Real Chrome tab groups, across every window
+
+TabLens doesn't just draw groups in its own UI — it creates and maintains **actual Chrome tab groups** (`chrome.tabGroups`), named and coloured after each mission, for tabs in **all** your browser windows.
+
+Chrome groups can't span windows, so you choose (Settings → Grouping):
+
+| Mode | What happens to a mission spread over 3 windows |
+| --- | --- |
+| **Gather into one window** (default) | Its tabs move into the window that already has the mission's group (or holds most of it) — one group per mission |
+| **Group in each window** | Nothing moves; each window gets its own group with the mission's name and colour |
+
+- **Keep groups in sync** (on by default): once a mission is grouped, new tabs that belong to it join its group automatically — in the same window, or gathered, per your mode. It only extends groupings you made; it never closes tabs.
+- Pinned tabs, popup/app windows and incognito-vs-normal boundaries are respected; one mission failing never stops the rest.
+- **Undo** puts every tab back in its original window and position — recreating a window if gathering emptied it.
+
+<img src="docs/screenshots/missions-windows.png" alt="Missions board after grouping tabs from three windows: each mission shows In Chrome group, 3 windows, and each card its window" width="100%">
+
 ### Missions board — drag the card, the real tab moves
 
 <img src="docs/screenshots/missions.png" alt="Missions board with columns per mission and draggable tab cards" width="100%">
@@ -158,7 +175,7 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 | `pnpm test` | Unit tests (Vitest): URL normalisation, TF-IDF, states, clustering, rules, AI merges, library shelves |
 | `pnpm compile` | Type-check |
 | `pnpm test:server` | TabLens API tests: caller check, CORS, install id, validation, rate limits, daily quota |
-| `pnpm e2e` | Builds a test variant and drives the **real extension** in Chromium, offline, against 24 realistic fake tabs: asserts states, mission separation, Chrome grouping, drag-to-rule, form privacy, archive + undo |
+| `pnpm e2e` | Builds a test variant and drives the **real extension** in Chromium, offline: 24 realistic tabs (states, mission separation, Chrome grouping, drag-to-rule, form privacy, archive + undo), then a **multi-window run** — missions split across 3 windows plus a pinned tab and a popup window — checking real Chrome groups in both modes, undo across windows and auto-sync |
 | `pnpm screenshots` | Same run, writing light and dark screenshots of every surface to `docs/screenshots` |
 
 ```
@@ -167,7 +184,7 @@ src/
   components/    ui/ (shadcn-style primitives) · spectrum · cleanup-plan · dossier · quick-find · save-dialog
   lib/           analysis/ (states, cluster, naming, analyze) · ai/ (contract shared with server, Nano + TabLens AI router) · tracker · executor · service · library · db · settings · rpc
 server/          TabLens API — Cloudflare Worker that holds the Gemini key
-scripts/         e2e.mjs · make-icons.sh
+scripts/         e2e.mjs · e2e-windows.mjs · make-icons.sh
 ```
 
 ## Roadmap
