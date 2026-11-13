@@ -2,6 +2,8 @@
 
 Built in small vertical slices; each slice ends in a commit that builds and passes tests.
 
+**Status (Nov 13, 2026):** slices 1–17 are implemented. Remaining before a store release: real-world tuning of clustering thresholds on volunteer tab sets, store listing assets, and Web Store review.
+
 | # | Slice | Done when |
 | --- | --- | --- |
 | 1 | Docs: product spec v2, UI spec, architecture, plan | Committed |

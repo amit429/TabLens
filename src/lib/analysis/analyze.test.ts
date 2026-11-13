@@ -154,6 +154,19 @@ describe('analyze', () => {
     expect(merged.tabIds.some((id) => a.verdicts[id]!.evidence.some((e) => e.code === 'model'))).toBe(true);
   });
 
+  it('keeps a mission together after a board move into it', async () => {
+    const tabs = pile();
+    const first = await run(tabs);
+    const repo = first.missions.find((m) => m.name.includes('expense-app'))!;
+    const hn = tabs.find((t) => t.title === 'Hacker News')!;
+    const rules: Rule[] = [{ id: 'r', kind: 'url-prefix', pattern: 'news.ycombinator.com', missionName: repo.name, createdFrom: 'test', createdAt: 1 }];
+    // Same tabs, previous run's missions passed in, and the rule from the move.
+    const second = await analyze({ tabs, rules, groups: new Map(), settings, now: NOW, previous: first.missions });
+    const m = second.missions.find((x) => x.name === repo.name)!;
+    expect(m.tabIds).toContain(hn.id);
+    for (const id of repo.tabIds) expect(m.tabIds).toContain(id);
+  });
+
   it("doesn't chain unrelated tabs through Chrome's opener", async () => {
     const tabs = pile();
     // Every tab "opened from" the one before it, as Chrome reports for Ctrl+T tabs.

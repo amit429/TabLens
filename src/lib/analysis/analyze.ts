@@ -41,14 +41,16 @@ export interface AnalyzeInput {
   sticky?: 'all' | 'user';
 }
 
-function stickyMatch(tabIds: number[], previous: Mission[] | undefined, sticky: 'all' | 'user'): Mission | undefined {
+function stickyMatch(tabIds: number[], previous: Mission[] | undefined, sticky: 'all' | 'user', ruleNames: Set<string>): Mission | undefined {
   if (!previous?.length) return undefined;
   const ids = new Set(tabIds);
   let best: Mission | undefined;
   let bestScore = 0;
   for (const m of previous) {
     if (m.id === UNSORTED_ID) continue;
-    if (sticky === 'user' ? m.source !== 'user' : m.source === 'heuristic') continue;
+    // Names the user gave, or that their board moves point at, always stick; model names stick between AI runs.
+    const userOwned = m.source === 'user' || ruleNames.has(m.name);
+    if (sticky === 'user' ? !userOwned : m.source === 'heuristic' && !userOwned) continue;
     const overlap = m.tabIds.filter((id) => ids.has(id)).length;
     const score = overlap / Math.max(ids.size, m.tabIds.length);
     if (score >= 0.5 && score > bestScore) [best, bestScore] = [m, score];
@@ -113,9 +115,10 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
 
   const names = new Map<string, { name: string; intent?: string; kind?: MissionKind; confidence?: number; source: Mission['source'] }>();
   const stuck = new Set<string>();
+  const ruleNames = new Set(input.rules.map((r) => r.missionName));
   for (const c of clusters) {
     const ds = c.tabIds.map((id) => descs.get(id)!);
-    const prev = c.source === 'similarity' ? stickyMatch(c.tabIds, input.previous, input.sticky ?? 'all') : undefined;
+    const prev = c.source === 'similarity' ? stickyMatch(c.tabIds, input.previous, input.sticky ?? 'all', ruleNames) : undefined;
     if (prev) {
       stuck.add(c.key);
       names.set(c.key, { name: prev.name, intent: prev.source === 'model' ? prev.intent : undefined, kind: prev.kind, source: prev.source });
