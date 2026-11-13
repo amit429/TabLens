@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
+  // The shared contract (../src/lib/ai/contract.ts) imports zod; resolve it from this package so the
+  // Worker builds when only server/ is installed (e.g. Cloudflare Workers Builds with root "server").
+  "alias": { "zod": "./node_modules/zod" },
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   // Anonymous per-install daily counters. No content is ever written here.
   // Wrangler provisions the namespace on first deploy; on older versions run
