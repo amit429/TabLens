@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `pnpm dev`. Never commit .dev.vars.
+GEMINI_API_KEY=your-gemini-api-key

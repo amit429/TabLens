@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { CheckCircle2, Cpu, Download, Eye, EyeOff, KeyRound, Loader2, Pause, Play, Plus, ShieldAlert, Trash2, Upload, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Cpu, Download, Loader2, Pause, Play, Plus, ShieldAlert, Sparkles, Trash2, Upload, X, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,11 +13,11 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { usePageAccess, requestAccess } from '@/hooks/access';
 import { useSettings } from '@/hooks/data';
 import { DEFAULT_SETTINGS, SENSITIVE_PRESETS, isPaused, updateSettings, type AiMode, type Settings as S } from '@/lib/settings';
-import { GEMINI_MODELS, downloadNano, type NanoStatus } from '@/lib/ai/router';
-import { buildUserPrompt } from '@/lib/ai/prompt';
+import { downloadNano, type NanoStatus } from '@/lib/ai/router';
+import { buildUserPrompt } from '@/lib/ai/contract';
 import { db, uid } from '@/lib/db';
-import { rpc } from '@/lib/rpc';
-import { WEB_ORIGINS, hostnameOf } from '@/lib/url';
+import { rpc, type RpcMap } from '@/lib/rpc';
+import { WEB_ORIGINS, hostnameOf, normalizeUrl } from '@/lib/url';
 import { cn } from '@/lib/cn';
 
 const SECTIONS = [
@@ -241,41 +241,47 @@ function RangeField({ value, onCommit }: { value: [number, number]; onCommit: (v
 function Ai({ s }: { s: S }) {
   const [nano, setNano] = React.useState<NanoStatus | null>(null);
   const [downloading, setDownloading] = React.useState<number | null>(null);
-  const [showKey, setShowKey] = React.useState(false);
-  const [key, setKey] = React.useState(s.ai.apiKey);
-  const [test, setTest] = React.useState<{ ok: boolean; message: string } | 'running' | null>(null);
+  const [status, setStatus] = React.useState<RpcMap['cloudStatus']['res'] | 'checking' | null>(null);
   const [sample, setSample] = React.useState('');
-  React.useEffect(() => setKey(s.ai.apiKey), [s.ai.apiKey]);
+
+  const check = React.useCallback(() => {
+    setStatus('checking');
+    rpc('cloudStatus', {})
+      .then(setStatus)
+      .catch((e) => setStatus({ ok: false, message: String(e) }));
+  }, []);
+
   React.useEffect(() => {
     rpc('aiStatus', {}).then((r) => setNano(r.nano)).catch(() => setNano('unsupported'));
-    chrome.tabs.query({ active: true, lastFocusedWindow: false }).then(async (tabs) => {
+    chrome.tabs.query({}).then(async (tabs) => {
       const t = tabs.find((x) => /^https?:/.test(x.url ?? ''));
       if (!t) return;
-      const snap = await db.snapshots.where('normUrl').startsWith((t.url ?? '').replace(/^https?:\/\/(www\.)?/, 'https://').split('#')[0]!.split('?')[0]!).first();
-      setSample(
-        buildUserPrompt([], [{ id: t.id!, title: t.title ?? '', site: hostnameOf(t.url ?? ''), pageType: snap?.pageType ?? 'other', summary: (snap?.description || snap?.text || '').slice(0, 600) }]),
-      );
+      const snap = await db.snapshots.get(normalizeUrl(t.url ?? ''));
+      setSample(buildUserPrompt([], [{ id: t.id!, title: t.title ?? '', site: hostnameOf(t.url ?? ''), pageType: snap?.pageType ?? 'other', summary: (snap?.description || snap?.text || '').slice(0, 600) }]));
     });
   }, []);
+  React.useEffect(() => {
+    if (s.ai.cloudConsent) check();
+  }, [s.ai.cloudConsent, check]);
 
   const NANO_TEXT: Record<NanoStatus, [string, string]> = {
     available: ['Ready', 'Gemini Nano is on this device. Mission names are generated locally; nothing leaves your computer.'],
     downloadable: ['Not downloaded', 'Chrome can download Gemini Nano (about 2–4 GB). It needs 22 GB free disk space and 16 GB RAM or a GPU with 4 GB+ VRAM.'],
     downloading: ['Downloading', 'Chrome is downloading Gemini Nano in the background.'],
-    unavailable: ['Not available on this device', 'This computer doesn’t meet Gemini Nano’s hardware needs. Use the Gemini API instead, or keep heuristic names.'],
-    unsupported: ['Not supported in this browser', 'This browser has no built-in Prompt API. Use the Gemini API instead, or keep heuristic names.'],
+    unavailable: ['Not available on this device', 'This computer doesn’t meet Gemini Nano’s hardware needs. TabLens AI covers it.'],
+    unsupported: ['Not supported in this browser', 'This browser has no built-in Prompt API. TabLens AI covers it.'],
   };
 
   return (
-    <Section id="ai" title="AI" hint="TabLens groups tabs without AI. Gemini only names missions, writes their one-line intent and summarises pages in the dossier.">
-      <Row label="Mode" hint="Automatic uses Gemini Nano on this device when it's available, otherwise the Gemini API if you've turned it on.">
+    <Section id="ai" title="AI" hint="TabLens groups tabs without AI. Gemini names missions, writes their one-line intent, merges groups that are one task and summarises pages. No API key needed.">
+      <Row label="Mode" hint="Automatic uses Gemini Nano on this device when it's available, otherwise TabLens AI if it's on.">
         <Segmented<AiMode>
           value={s.ai.mode}
           onChange={(mode) => updateSettings({ ai: { mode } })}
           options={[
             { value: 'auto', label: 'Automatic' },
-            { value: 'nano', label: 'On device' },
-            { value: 'cloud', label: 'Gemini API' },
+            { value: 'nano', label: 'On device only' },
+            { value: 'cloud', label: 'TabLens AI' },
             { value: 'off', label: 'Off' },
           ]}
         />
@@ -311,53 +317,49 @@ function Ai({ s }: { s: S }) {
           </Button>
         )}
       </Row>
-      <Row label="Use the Gemini API" hint="Sends a short descriptor per tab (title, site, page type, ≤100-word summary) to Google's Gemini API with your own key. Never full page text, never form data.">
-        <Switch checked={s.ai.cloudConsent} onCheckedChange={(v) => updateSettings({ ai: { cloudConsent: v } })} />
+      <Row
+        label={
+          <span className="inline-flex items-center gap-2">
+            <Sparkles className="size-4" /> TabLens AI (Gemini, hosted by TabLens)
+          </span>
+        }
+        hint="Sends a short descriptor per tab — title, site, page type and up to 100 words of summary — to TabLens's server, which asks Google Gemini and returns names. Never full page text, form data or your browsing history. Nothing is stored or logged."
+      >
+        <Switch checked={s.ai.cloudConsent} onCheckedChange={(v) => updateSettings({ ai: { cloudConsent: v } })} aria-label="Use TabLens AI" />
       </Row>
       {s.ai.cloudConsent && (
-        <>
-          <Row label="Gemini API key" hint="Stored only in this browser's extension storage. Get one in Google AI Studio." wide>
-            <form
-              className="flex flex-wrap gap-2"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                await updateSettings({ ai: { apiKey: key.trim() } });
-                toast('API key saved');
-              }}
-            >
-              <div className="relative min-w-64 flex-1">
-                <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input type={showKey ? 'text' : 'password'} value={key} onChange={(e) => setKey(e.target.value)} placeholder="AIza…" className="pl-8 pr-9 font-mono text-[12px]" autoComplete="off" spellCheck={false} />
-                <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground" aria-label={showKey ? 'Hide key' : 'Show key'}>
-                  {showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-              <Button type="submit" variant="outline" disabled={key.trim() === s.ai.apiKey}>
-                Save key
-              </Button>
-            </form>
-          </Row>
-          <Row label="Model">
-            <Select value={s.ai.model} onChange={(model) => updateSettings({ ai: { model } })} options={GEMINI_MODELS.map((m) => ({ value: m.id, label: m.label, note: m.note }))} ariaLabel="Gemini model" className="min-w-56" />
-          </Row>
-          <Row label="Test connection" hint={test && test !== 'running' ? <span className={cn('inline-flex items-center gap-1', test.ok ? 'text-active' : 'text-destructive')}>{test.ok ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}{test.message}</span> : 'Sends one tiny request to check the key and model.'}>
-            <Button
-              variant="outline"
-              disabled={!s.ai.apiKey || test === 'running'}
-              onClick={async () => {
-                setTest('running');
-                setTest(await rpc('testCloud', {}).catch((e) => ({ ok: false, message: String(e) })));
-              }}
-            >
-              {test === 'running' && <Loader2 className="animate-spin" />} Test
-            </Button>
-          </Row>
-          {sample && (
-            <Row label="Exactly what's sent for one tab" hint="This is the line Gemini sees for the tab you were last on." wide>
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-[10px] bg-muted p-3 text-[12px] leading-relaxed scrollbar-thin">{sample}</pre>
-            </Row>
-          )}
-        </>
+        <Row
+          label="Status"
+          hint={
+            status === 'checking' || status === null ? (
+              'Checking…'
+            ) : status.ok ? (
+              <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-1 text-active">
+                  <CheckCircle2 className="size-3.5" /> Connected{status.model ? ` · ${status.model}` : ''}
+                </span>
+                {status.quota && (
+                  <span>
+                    Today: {status.quota.naming.used} of {status.quota.naming.limit} analyses, {status.quota.summaries.used} of {status.quota.summaries.limit} summaries
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-destructive">
+                <XCircle className="size-3.5" /> {status.message}
+              </span>
+            )
+          }
+        >
+          <Button variant="outline" onClick={check} disabled={status === 'checking'}>
+            {status === 'checking' && <Loader2 className="animate-spin" />} Check again
+          </Button>
+        </Row>
+      )}
+      {sample && (
+        <Row label="Exactly what's sent for one tab" hint="This is the line Gemini would see for one of your open tabs." wide>
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-[10px] bg-muted p-3 text-[12px] leading-relaxed scrollbar-thin">{sample}</pre>
+        </Row>
       )}
     </Section>
   );
@@ -606,7 +608,7 @@ function Data() {
         <DialogContent>
           <DialogTitle>Delete all TabLens data?</DialogTitle>
           <DialogDescription>
-            This removes {counts?.archive ?? 0} archived tabs, {counts?.saves ?? 0} saves with their notes, {counts?.rules ?? 0} learned rules, all behaviour history and your settings, including your Gemini API key. It can't be undone.
+            This removes {counts?.archive ?? 0} archived tabs, {counts?.saves ?? 0} saves with their notes, {counts?.rules ?? 0} learned rules, all behaviour history and your settings. It can't be undone.
           </DialogDescription>
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmOpen(false)}>

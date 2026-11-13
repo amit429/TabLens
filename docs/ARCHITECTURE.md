@@ -1,6 +1,6 @@
 # TabLens — Architecture
 
-Manifest V3 extension, built with [WXT](https://wxt.dev) (Vite under the hood), TypeScript, React 19, Tailwind CSS v4. No backend.
+Manifest V3 extension, built with [WXT](https://wxt.dev) (Vite under the hood), TypeScript, React 19, Tailwind CSS v4. One small backend: the TabLens API (`server/`), a Cloudflare Worker that holds the Gemini key.
 
 ```
           capture                       analyse                     approve
@@ -39,7 +39,7 @@ src/
     url.ts                 URL normalisation, tracking-param stripping, sensitive-domain checks
     text.ts                tokeniser, stop words, TF-IDF, cosine similarity
     analysis/              states, engagement, clustering, naming, rules, plan, explanations
-    ai/                    Gemini Nano (Prompt API), Gemini API (your own key), router
+    ai/                    contract.ts (shared with server), router: Gemini Nano → TabLens API → heuristics
     executor.ts            group / move / archive / restore / snooze / undo
     tracker.ts             active time, activations, visits, opener chains
     library.ts             bookmarks + saves model and clustering
@@ -69,6 +69,7 @@ Tab ids are not stable across browser restarts. On startup the tracker re-keys r
 - **Service worker lifetime**: active-time state lives in `chrome.storage.session`; counters are flushed on every event and by a 30 s alarm (Chrome's minimum). Content scripts send a 15 s heartbeat while visible.
 - **Analysis is pure**: `analysis/*` takes plain data in and returns missions, verdicts and a plan. It is unit tested with Vitest and runs in the worker.
 - **Clustering pipeline**: rules first → opener chains (union-find) → same-site sessions for app domains → TF-IDF cosine over descriptor text with agglomerative merge → AI naming/merging when available → heuristic naming fallback (top distinctive keywords + domain archetype).
-- **AI routing**: `auto` tries the Prompt API (`LanguageModel.availability()`), then the Gemini API if the user has opted in with their Gemini key, then heuristics. Only descriptors (title, domain, page type, ≤ 100-word summary) are ever sent to the cloud.
+- **AI routing**: `auto` tries the Prompt API (`LanguageModel.availability()`), then the TabLens API if the user agreed during setup, then heuristics. Only descriptors (title, domain, page type, ≤ 100-word summary) are ever sent. The Gemini key lives only in the Worker as a secret; users never provide one.
+- **TabLens API** (`server/`): Cloudflare Worker with two fixed-prompt endpoints, zod-validated size-capped input, caller check (extension origin/id), Workers Rate Limiting per install and per IP, a KV daily quota per random install id, and no content logging.
 - **Live UI**: Dexie `liveQuery` (cross-context via BroadcastChannel) plus `chrome.tabs` events keep every surface current without polling.
 - **Optional permissions**: `<all_urls>` host access and `bookmarks` are optional and requested in context, after the user has seen value.

@@ -1,16 +1,34 @@
-import { ApiError, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
-import type { Namer, NamerCluster } from '../analysis/analyze';
-import type { Settings } from '../settings';
+import type { Namer } from '../analysis/analyze';
+import { updateSettings, type Settings } from '../settings';
 import type { Snapshot } from '../types';
-import { NamerSchema, SUMMARY_PROMPT, SYSTEM_PROMPT, buildUserPrompt, sanitize } from './prompt';
+import {
+  API_PATHS,
+  EXTENSION_HEADER,
+  INSTALL_HEADER,
+  LIMITS,
+  NamerSchema,
+  SUMMARY_PROMPT,
+  SYSTEM_PROMPT,
+  SummarySchema,
+  buildSummaryInput,
+  buildUserPrompt,
+  clampRequest,
+  sanitize,
+  type HealthInfo,
+  type QuotaInfo,
+  type SummarizeRequest,
+} from './contract';
 
 /**
- * AI routing. Everything is Gemini:
- *  1. Gemini Nano on-device through Chrome's Prompt API — private and free, used first when available.
- *  2. Gemini API with the user's own key — opt-in; only short tab descriptors are sent.
+ * AI routing. Everything is Gemini, and users never need a key:
+ *  1. Gemini Nano on device through Chrome's Prompt API — private and free, used first when available.
+ *  2. TabLens AI — our API (server/) holds the Gemini key; the extension sends short descriptors only.
  *  3. No model — heuristic names from the clustering engine.
  */
+
+/** Where the TabLens API lives. Set at build time with TABLENS_API (see wxt.config.ts). */
+export const API_BASE: string = import.meta.env.WXT_TABLENS_API || 'http://localhost:8787';
 
 interface LanguageModelSession {
   prompt(input: string, opts?: { responseConstraint?: object; signal?: AbortSignal }): Promise<string>;
@@ -23,12 +41,6 @@ interface LanguageModelStatic {
 declare const LanguageModel: LanguageModelStatic | undefined;
 
 export type NanoStatus = 'unsupported' | 'unavailable' | 'downloadable' | 'downloading' | 'available';
-
-export const GEMINI_MODELS = [
-  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', note: 'Best names, still fast' },
-  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', note: 'Cheapest and fastest' },
-  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', note: 'Previous Flash generation' },
-];
 
 const LANG = { expectedInputs: [{ type: 'text', languages: ['en'] }], expectedOutputs: [{ type: 'text', languages: ['en'] }] };
 
@@ -54,24 +66,18 @@ export async function downloadNano(onProgress?: (fraction: number) => void): Pro
   return true;
 }
 
-const namerJsonSchema = z.toJSONSchema(NamerSchema);
-
 const nanoNamer: Namer = async (clusters, unsorted) => {
   const session = await LanguageModel!.create({ ...LANG, initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }] });
   try {
     // Nano's context window is small, so clusters go in batches of six.
-    const out = {
-      missions: [] as ReturnType<typeof sanitize>['missions'],
-      assignments: [] as NonNullable<ReturnType<typeof sanitize>['assignments']>,
-      merges: [] as NonNullable<ReturnType<typeof sanitize>['merges']>,
-    };
+    const out: z.infer<typeof NamerSchema> = { missions: [], assignments: [], merges: [] };
     for (let i = 0; i < clusters.length; i += 6) {
       const batch = clusters.slice(i, i + 6);
-      const raw = await session.prompt(buildUserPrompt(batch, i === 0 ? unsorted.slice(0, 15) : [], 20), { responseConstraint: namerJsonSchema });
+      const raw = await session.prompt(buildUserPrompt(batch, i === 0 ? unsorted.slice(0, 15) : [], 20), { responseConstraint: z.toJSONSchema(NamerSchema) });
       const res = sanitize(NamerSchema.parse(JSON.parse(raw)), batch);
       out.missions.push(...res.missions);
-      out.assignments.push(...(res.assignments ?? []));
-      out.merges.push(...(res.merges ?? []));
+      out.assignments.push(...res.assignments);
+      out.merges.push(...res.merges);
     }
     return out;
   } finally {
@@ -79,80 +85,87 @@ const nanoNamer: Namer = async (clusters, unsorted) => {
   }
 };
 
-function client(settings: Settings) {
-  return new GoogleGenAI({ apiKey: settings.ai.apiKey });
-}
-
-async function geminiJson<T>(settings: Settings, system: string, user: string, schema: z.ZodType<T>): Promise<T> {
-  const res = await client(settings).models.generateContent({
-    model: settings.ai.model,
-    contents: user,
-    config: {
-      systemInstruction: system,
-      responseMimeType: 'application/json',
-      responseJsonSchema: z.toJSONSchema(schema),
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      temperature: 0.2,
-    },
-  });
-  const text = res.text;
-  if (!text) throw new Error(`Gemini returned no text (${res.candidates?.[0]?.finishReason ?? 'unknown reason'})`);
-  return schema.parse(JSON.parse(text));
-}
-
-function geminiNamer(settings: Settings): Namer {
-  return async (clusters: NamerCluster[], unsorted) =>
-    sanitize(await geminiJson(settings, SYSTEM_PROMPT, buildUserPrompt(clusters, unsorted), NamerSchema), clusters);
-}
-
-export function describeError(err: unknown, model: string): string {
-  if (err instanceof ApiError) {
-    if (err.status === 400 && /API key/i.test(err.message)) return 'The Gemini API key was rejected. Check it in Google AI Studio.';
-    if (err.status === 401 || err.status === 403) return 'The Gemini API key was rejected or lacks access. Check it in Google AI Studio.';
-    if (err.status === 404) return `Model ${model} isn't available for this key. Pick another model.`;
-    if (err.status === 429) return 'Gemini rate limit or quota reached. Try again in a minute.';
-    return `Gemini API error ${err.status}: ${err.message}`;
+/** A failed call to the TabLens API, with a message fit to show the user. */
+export class CloudError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status: number,
+  ) {
+    super(message);
   }
-  return err instanceof Error ? err.message : String(err);
 }
 
-export async function testGemini(settings: Settings): Promise<{ ok: boolean; message: string }> {
-  if (!settings.ai.apiKey) return { ok: false, message: 'Add a Gemini API key first.' };
+async function call<T>(settings: Settings, path: string, init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number }): Promise<T> {
+  if (!settings.installId) settings = await updateSettings({ installId: crypto.randomUUID() });
+  let res: Response;
   try {
-    const res = await client(settings).models.generateContent({
-      model: settings.ai.model,
-      contents: 'Reply with the single word OK.',
-      config: { maxOutputTokens: 256, thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } },
+    res = await fetch(API_BASE + path, {
+      method: init.method,
+      headers: { 'Content-Type': 'application/json', [INSTALL_HEADER]: settings.installId, [EXTENSION_HEADER]: chrome.runtime.id },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: AbortSignal.timeout(init.timeoutMs ?? 45_000),
     });
-    return { ok: true, message: `Connected to ${settings.ai.model}${res.text ? '' : ' (empty reply)'}.` };
   } catch (err) {
-    return { ok: false, message: describeError(err, settings.ai.model) };
+    throw new CloudError(err instanceof DOMException && err.name === 'TimeoutError' ? 'TabLens AI took too long to answer.' : 'Couldn’t reach TabLens AI. Check your connection.', 'network', 0);
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    throw new CloudError(data.message ?? `TabLens AI error ${res.status}`, data.error ?? 'http', res.status);
+  }
+  return (await res.json()) as T;
+}
+
+function cloudNamer(settings: Settings): Namer {
+  return async (clusters, unsorted) => {
+    const body = clampRequest(clusters, unsorted);
+    const out = await call<z.infer<typeof NamerSchema>>(settings, API_PATHS.nameMissions, { method: 'POST', body });
+    return sanitize(NamerSchema.parse(out), body.clusters);
+  };
+}
+
+/** Health and today's quota for the Settings page. */
+export async function cloudStatus(settings: Settings): Promise<{ ok: boolean; message: string; model?: string; quota?: QuotaInfo }> {
+  try {
+    const health = await call<HealthInfo>(settings, API_PATHS.health, { method: 'GET', timeoutMs: 10_000 });
+    if (!health.ok) return { ok: false, message: 'TabLens AI is up but not configured yet.' };
+    const quota = await call<QuotaInfo>(settings, API_PATHS.quota, { method: 'GET', timeoutMs: 10_000 });
+    return { ok: true, message: 'Connected', model: health.model, quota };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
 }
 
-const SummarySchema = z.object({
-  summary: z.string(),
-  topics: z.array(z.string()),
-});
+/** What the extension sends to summarise a page: never the full text. */
+export function summaryRequest(snap: Snapshot): SummarizeRequest {
+  return {
+    title: snap.title.slice(0, LIMITS.title),
+    site: (snap.siteName || new URL(snap.url).hostname).slice(0, LIMITS.site),
+    pageType: snap.pageType,
+    description: snap.description.slice(0, LIMITS.description),
+    headings: snap.headings.slice(0, LIMITS.headings).map((h) => h.slice(0, LIMITS.heading)),
+    excerpt: snap.text.split(/\s+/).slice(0, 100).join(' ').slice(0, LIMITS.excerpt),
+  };
+}
 
 /** Two-sentence "what is this page" summary for the tab dossier. */
 export async function summarize(settings: Settings, snap: Snapshot): Promise<{ summary: string; topics: string[]; engine: 'nano' | 'cloud' } | null> {
-  const input = `Title: ${snap.title}\nSite: ${snap.siteName ?? ''}\nType: ${snap.pageType}\nDescription: ${snap.description}\nHeadings: ${snap.headings.slice(0, 12).join(' | ')}\n\n${snap.text.split(/\s+/).slice(0, 900).join(' ')}`;
   const mode = settings.ai.mode;
   if (mode === 'off') return null;
   if ((mode === 'auto' || mode === 'nano') && (await nanoStatus()) === 'available') {
     const s = await LanguageModel!.create({ ...LANG, initialPrompts: [{ role: 'system', content: SUMMARY_PROMPT }] });
     try {
-      const raw = await s.prompt(input.split(/\s+/).slice(0, 700).join(' '), { responseConstraint: z.toJSONSchema(SummarySchema) });
+      // On device the whole (capped) snapshot can be used — it never leaves the computer.
+      const input = buildSummaryInput({ ...summaryRequest(snap), excerpt: snap.text.split(/\s+/).slice(0, 600).join(' ') });
+      const raw = await s.prompt(input, { responseConstraint: z.toJSONSchema(SummarySchema) });
       return { ...SummarySchema.parse(JSON.parse(raw)), engine: 'nano' };
     } finally {
       s.destroy();
     }
   }
-  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent && settings.ai.apiKey) {
-    // Cloud path never sends full page text: cap at ~100 words of body plus title/description/headings.
-    const descriptor = input.split('\n\n')[0] + '\n\n' + snap.text.split(/\s+/).slice(0, 100).join(' ');
-    return { ...(await geminiJson(settings, SUMMARY_PROMPT, descriptor, SummarySchema)), engine: 'cloud' };
+  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) {
+    const out = await call<z.infer<typeof SummarySchema>>(settings, API_PATHS.summarize, { method: 'POST', body: summaryRequest(snap) });
+    return { ...SummarySchema.parse(out), engine: 'cloud' };
   }
   return null;
 }
@@ -161,6 +174,6 @@ export async function pickNamer(settings: Settings): Promise<{ namer?: Namer; en
   const mode = settings.ai.mode;
   if (mode === 'off') return { engine: 'heuristic' };
   if ((mode === 'auto' || mode === 'nano') && (await nanoStatus()) === 'available') return { namer: nanoNamer, engine: 'nano' };
-  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent && settings.ai.apiKey) return { namer: geminiNamer(settings), engine: 'cloud' };
+  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) return { namer: cloudNamer(settings), engine: 'cloud' };
   return { engine: 'heuristic' };
 }

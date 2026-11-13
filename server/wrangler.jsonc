@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tablens-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // Anonymous per-install daily counters. No content is ever written here.
+  // Wrangler provisions the namespace on first deploy; on older versions run
+  // `wrangler kv namespace create QUOTA` and paste its id here.
+  "kv_namespaces": [{ "binding": "QUOTA" }],
+  // Burst protection per install and per IP.
+  "ratelimits": [
+    { "name": "INSTALL_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "IP_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+  ],
+  "vars": {
+    "GEMINI_MODEL": "gemini-3.5-flash-lite",
+    "DAILY_NAMING_LIMIT": "60",
+    "DAILY_SUMMARY_LIMIT": "200",
+    // Comma-separated Chrome extension ids allowed to call the API. Empty = any extension (use for development only).
+    "ALLOWED_EXTENSION_IDS": ""
+  }
+  // Secret, never in this file:  wrangler secret put GEMINI_API_KEY
+}

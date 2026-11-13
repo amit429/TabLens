@@ -142,7 +142,7 @@ Left sub-nav inside the page.
 | --- | --- |
 | General | Theme (System/Light/Dark), default surface (popup/side panel), keyboard shortcuts (link to chrome://extensions/shortcuts), already-open nudge on/off |
 | Analysis | State thresholds (sliders: simmering, stale, abandoned days; unfinished read range), engagement weights (four sliders that always sum to 1), mission confidence threshold, daily analysis time, auto-run on browser start |
-| AI | Mode: Automatic / On-device only / Cloud / Off. On-device availability check with status. Gemini API: key (stored locally), model (3.8 Flash, 3.5 Flash-Lite…), *Test connection*, and a preview of exactly what would be sent for one tab |
+| AI | Mode: Automatic / On device only / TabLens AI / Off. Gemini Nano status + download. TabLens AI consent toggle, connection status and today's usage against the daily limit, and a preview of exactly what would be sent for one tab. No API key field — the key lives on the TabLens API |
 | Privacy | Page reading status + *Allow*/*Revoke*, excluded domains (chips, presets: banking, payments, health, email), incognito toggle, pause tracking (1 h / until tomorrow / indefinitely), snapshot retention days |
 | Rules | Learned rules table (pattern → mission, created from, date), delete, add manually |
 | Data | Storage usage, export all as JSON, import, **Delete all data** (confirm dialog naming what goes) |

@@ -1,6 +1,7 @@
 import type { GroupColor } from './types';
 import type { Analysis, ArchiveEntry, PageType, SaveIntent, Snapshot } from './types';
 import type { NanoStatus } from './ai/router';
+import type { QuotaInfo } from './ai/contract';
 
 /** Every request a UI surface or content script can send to the background worker. */
 export interface RpcMap {
@@ -27,7 +28,7 @@ export interface RpcMap {
   deleteRule: { req: { ruleId: string }; res: void };
   enableContentReading: { req: Record<string, never>; res: { granted: boolean } };
   aiStatus: { req: Record<string, never>; res: { nano: NanoStatus } };
-  testCloud: { req: Record<string, never>; res: { ok: boolean; message: string } };
+  cloudStatus: { req: Record<string, never>; res: { ok: boolean; message: string; model?: string; quota?: QuotaInfo } };
   summarizeTab: { req: { tabId: number }; res: { summary: string; topics: string[] } | null };
   deleteAllData: { req: Record<string, never>; res: { ok: boolean } };
   exportData: { req: Record<string, never>; res: { json: string } };

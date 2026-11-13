@@ -13,7 +13,7 @@ TabLens reads what's in your tabs and remembers how you used them, then tells yo
 1. **Explain every verdict.** Every suggestion carries its reasons in plain words: "Not opened for 9 days · read 4% · duplicate of tab in Window 2". A suggestion without a reason is a bug.
 2. **Approve, then act, then undo.** Every action is a click; every click has a 30-second undo; every closed tab is restorable from the Archive.
 3. **The tab bar is the source of truth.** Dragging a card in TabLens moves the real tab. Renaming a mission renames the real Chrome tab group. We never show a world that drifts from the browser.
-4. **Local first.** Everything is stored on the device. AI is all Gemini: Gemini Nano on-device when available, otherwise the Gemini API with the user's own key (opt-in) and only ever sends short descriptors.
+4. **Local first.** Everything is stored on the device. AI is all Gemini: Gemini Nano on-device when available, otherwise TabLens AI — our hosted API that holds the Gemini key, so users never need one. It's asked for once and only ever receives short descriptors.
 5. **Fast at 300 tabs.** Analysis is incremental; the popup paints from cache in under 200 ms and refreshes in the background.
 
 ## Surfaces

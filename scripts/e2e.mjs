@@ -87,6 +87,7 @@ const ctx = await chromium.launchPersistentContext(userDir, {
 
 await ctx.route(/^https?:\/\//, (route) => {
   const url = route.request().url();
+  if (process.env.TABLENS_API && url.startsWith(process.env.TABLENS_API)) return route.continue();
   const f = FIXTURES.find(([u]) => url.split('#')[0] === u);
   if (route.request().resourceType() !== 'document') return route.fulfill({ status: 404, body: '' });
   const [u, title, , opts] = f ?? [url, 'Page', 0, {}];
@@ -285,6 +286,22 @@ await rpc('saveForLater', { url: 'https://jalammar.github.io/illustrated-transfo
 await rpc('saveForLater', { url: 'https://www.youtube.com/watch?v=kCc8FmEb1nY', title: "Let's build GPT: from scratch, in code, spelled out", intent: 'watch', note: '' });
 
 await rpc('analyze', {});
+
+// TabLens AI wiring (run with TABLENS_API=http://localhost:8787 and `pnpm --dir server dev`).
+if (process.env.TABLENS_API) {
+  await ext.evaluate(async () => {
+    const s = (await chrome.storage.local.get('settings')).settings ?? {};
+    await chrome.storage.local.set({ settings: { ...s, ai: { ...(s.ai ?? {}), mode: 'cloud', cloudConsent: true } } });
+  });
+  const st = await rpc('cloudStatus');
+  log('cloud status:', JSON.stringify(st));
+  assert.equal(st.ok, true, 'extension reaches TabLens AI through origin check, CORS and install id');
+  assert.ok(st.quota && st.quota.naming.limit > 0, 'quota reported');
+  const fresh = await rpc('analyze', { fresh: true });
+  log('analysis engine with cloud on:', fresh.engine, '| missions:', fresh.missions.length);
+  if (process.env.TABLENS_EXPECT_GEMINI) assert.equal(fresh.engine, 'cloud', 'Gemini named the missions');
+  else assert.ok(fresh.missions.length > 1, 'falls back to heuristic names when Gemini fails');
+}
 log('all assertions passed');
 
 if (SHOTS) {
@@ -326,7 +343,7 @@ if (SHOTS) {
   await ext.goto(`${base}/dashboard.html#/settings`);
   await ext.waitForSelector('text=Engagement weights');
   await shot(ext, 'settings');
-  await ext.getByText('Use the Gemini API', { exact: true }).scrollIntoViewIfNeeded();
+  await ext.getByText('TabLens AI (Gemini, hosted by TabLens)').scrollIntoViewIfNeeded();
   await shot(ext, 'settings-ai');
 
   await ext.goto(`${base}/dashboard.html#/missions`);

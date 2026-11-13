@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { ArrowRight, Check, Cpu, Eye, KeyRound, Lock, Puzzle } from 'lucide-react';
+import { ArrowRight, Check, Cpu, Eye, Lock, Puzzle, Sparkles } from 'lucide-react';
 import { useDashboard } from '../App';
 import { Wordmark } from '@/components/logo';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Spectrum, SpectrumLegend } from '@/components/spectrum';
 import { requestAccess, usePageAccess } from '@/hooks/access';
+import { useSettings } from '@/hooks/data';
 import { updateSettings } from '@/lib/settings';
 import { rpc } from '@/lib/rpc';
 import { cn } from '@/lib/cn';
@@ -18,7 +18,8 @@ export default function Welcome() {
   const [step, setStep] = React.useState(0);
   const access = usePageAccess();
   const [nano, setNano] = React.useState<NanoStatus | null>(null);
-  const [key, setKey] = React.useState('');
+  const settings = useSettings();
+  const cloud = settings.ai.cloudConsent;
   React.useEffect(() => {
     rpc('aiStatus', {}).then((r) => setNano(r.nano)).catch(() => setNano('unsupported'));
   }, []);
@@ -102,41 +103,30 @@ export default function Welcome() {
             <section>
               <h1 className="font-display text-[30px] font-semibold leading-[1.15] tracking-[-0.02em]">Name missions with Gemini</h1>
               <p className="mt-3 text-[15px] text-muted-foreground">
-                Grouping works without AI. Gemini turns “Laptop & Battery” into “Comparing laptops under ₹80k”, and summarises pages when you ask.
+                Grouping works without AI. Gemini turns “Laptop & battery” into “Comparing laptops under ₹80k”, merges groups that are really one task, and summarises pages when you ask. Nothing to set up.
               </p>
               <div className="mt-6 space-y-3">
                 <div className="rounded-[14px] border border-border bg-card p-4">
                   <div className="flex items-center gap-2 font-medium">
                     <Cpu className="size-4" /> Gemini Nano, on this device
-                    {nano === 'available' && <span className="ml-auto text-[12px] text-active">Ready — used automatically</span>}
+                    {nano === 'available' && <span className="ml-auto text-[12px] text-active">Ready — used first</span>}
                   </div>
                   <p className="mt-1 text-[13px] text-muted-foreground">
                     {nano === 'available'
                       ? 'Private and free: tab data never leaves your computer.'
                       : nano === 'downloadable' || nano === 'downloading'
-                        ? 'Supported here. Download it later from Settings → AI (about 2–4 GB).'
-                        : 'Not available on this device or browser.'}
+                        ? 'Supported here. You can download it later from Settings → AI (about 2–4 GB).'
+                        : 'Not available on this device or browser, so TabLens AI covers it.'}
                   </p>
                 </div>
-                <div className="rounded-[14px] border border-border bg-card p-4">
+                <div className={cn('rounded-[14px] border bg-card p-4', cloud ? 'border-foreground' : 'border-border')}>
                   <div className="flex items-center gap-2 font-medium">
-                    <KeyRound className="size-4" /> Gemini API, with your key
+                    <Sparkles className="size-4" /> TabLens AI
+                    {cloud && <span className="ml-auto inline-flex items-center gap-1 text-[12px] text-active"><Check className="size-3.5" /> On</span>}
                   </div>
-                  <p className="mt-1 text-[13px] text-muted-foreground">Sends only a short descriptor per tab (title, site, type, ≤100-word summary). Get a key in Google AI Studio.</p>
-                  <form
-                    className="mt-3 flex gap-2"
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      if (!key.trim()) return;
-                      await updateSettings({ ai: { apiKey: key.trim(), cloudConsent: true } });
-                      setStep(3);
-                    }}
-                  >
-                    <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your Gemini API key" className="font-mono text-[12px]" autoComplete="off" />
-                    <Button type="submit" disabled={!key.trim()}>
-                      Use Gemini
-                    </Button>
-                  </form>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    Gemini, hosted by TabLens. No API key needed. Sends only a short descriptor per tab — title, site, page type and up to 100 words of summary. Never full pages, form data or history, and nothing is stored.
+                  </p>
                 </div>
               </div>
             </section>
@@ -183,9 +173,19 @@ export default function Welcome() {
               </Button>
             )}
             {step === 2 && (
-              <Button variant="ghost" onClick={() => setStep(3)}>
-                Skip
-              </Button>
+              <>
+                <Button variant="ghost" onClick={() => setStep(3)}>
+                  On device only
+                </Button>
+                <Button
+                  onClick={async () => {
+                    await updateSettings({ ai: { cloudConsent: true } });
+                    setStep(3);
+                  }}
+                >
+                  Turn on TabLens AI <ArrowRight />
+                </Button>
+              </>
             )}
             {step < 3 && step !== 2 && (
               <Button onClick={() => setStep(step + 1)}>

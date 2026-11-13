@@ -83,17 +83,21 @@ Bookmarks record *what*, never *why*. The Library fixes that:
 | --- | --- | --- |
 | <img src="docs/screenshots/settings-ai.png" alt="Settings: AI section"> | <img src="docs/screenshots/sidepanel.png" alt="Side panel missions view" width="220"> | <img src="docs/screenshots/welcome.png" alt="First-run onboarding"> |
 
-## AI: all Gemini, and optional
+## AI: Gemini, built in — no API key for users
 
-Grouping works with no AI at all — rules, your existing Chrome groups, repositories, opener chains and TF-IDF similarity over page content. AI only **names missions**, writes their one-line intent, **merges clusters that are really one task**, places leftover tabs, and **summarises pages** in the dossier.
+Grouping works with no AI at all — rules, your existing Chrome groups, repositories, opener chains and TF-IDF similarity over page content. AI **names missions**, writes their one-line intent, **merges clusters that are really one task**, places leftover tabs, and **summarises pages** in the dossier.
 
-| Mode | What runs | What leaves your browser |
+| Engine | What runs | What leaves your browser |
 | --- | --- | --- |
-| **Gemini Nano** (on device) | Chrome's built-in Prompt API, used automatically when your machine supports it | Nothing |
-| **Gemini API** (opt-in, your key) | `gemini-3.8-flash` by default, or Flash-Lite | A short descriptor per tab: title, site, page type and ≤100 words of summary. Never full page text, never form data |
+| **Gemini Nano** (on device) | Chrome's built-in Prompt API, used first when the machine supports it | Nothing |
+| **TabLens AI** (asked once, during setup) | [TabLens API](server/) — a small Cloudflare Worker that holds the Gemini key and calls Gemini | A short descriptor per tab: title, site, page type and ≤100 words of summary. Never full pages, form data or history; nothing is stored or logged |
 | **Off** | Heuristic names | Nothing |
 
-Set it up in **Settings → AI**: paste a key from Google AI Studio, pick a model, press **Test**. The settings page shows exactly what would be sent for one tab.
+```
+extension ──short tab descriptors──▶ TabLens API (Cloudflare Worker, holds the Gemini key) ──▶ Gemini
+```
+
+The key is never in the extension (anyone can unzip an extension and read it). The Worker only runs two fixed prompts on size-capped input, rate-limits per install and per IP, and enforces a daily quota per install. See [server/README.md](server/README.md) to run or deploy it.
 
 ## Privacy
 
@@ -120,6 +124,8 @@ pnpm build
 
 Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `.output/chrome-mv3`. Works in Chrome, Edge, Brave and Arc.
 
+To use TabLens AI from a source build, point the build at a TabLens API: `TABLENS_API=https://tablens-api.<subdomain>.workers.dev pnpm build` (or run one locally — see [server/README.md](server/README.md)).
+
 For development with hot reload: `pnpm dev` (opens a Chrome with the extension loaded).
 
 ## How it works
@@ -130,7 +136,7 @@ For development with hot reload: `pnpm dev` (opens a Chrome with the extension l
  (text, headings, type,          · tracker (visits, active time,      (React 19, Tailwind v4,
   scroll %, counts, form flag)     idle/focus aware)                   shadcn-style Radix UI,
  chrome.tabs / idle / windows ─▶ · analysis engine (pure, tested)      dnd-kit, cmdk)
-                                 · Gemini router (Nano → API → none)
+                                 · AI router (Gemini Nano → TabLens API → none)
                                  · executor — the only code that
                                    closes, groups or moves tabs,
                                    and records undo for every action
@@ -151,6 +157,7 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 | `pnpm zip` | Store-ready zip |
 | `pnpm test` | Unit tests (Vitest): URL normalisation, TF-IDF, states, clustering, rules, AI merges, library shelves |
 | `pnpm compile` | Type-check |
+| `pnpm test:server` | TabLens API tests: caller check, CORS, install id, validation, rate limits, daily quota |
 | `pnpm e2e` | Builds a test variant and drives the **real extension** in Chromium, offline, against 24 realistic fake tabs: asserts states, mission separation, Chrome grouping, drag-to-rule, form privacy, archive + undo |
 | `pnpm screenshots` | Same run, writing light and dark screenshots of every surface to `docs/screenshots` |
 
@@ -158,7 +165,8 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 src/
   entrypoints/   background.ts · content.ts · popup/ · sidepanel/ · dashboard/ (pages/)
   components/    ui/ (shadcn-style primitives) · spectrum · cleanup-plan · dossier · quick-find · save-dialog
-  lib/           analysis/ (states, cluster, naming, analyze) · ai/ (Gemini) · tracker · executor · service · library · db · settings · rpc
+  lib/           analysis/ (states, cluster, naming, analyze) · ai/ (contract shared with server, Nano + TabLens AI router) · tracker · executor · service · library · db · settings · rpc
+server/          TabLens API — Cloudflare Worker that holds the Gemini key
 scripts/         e2e.mjs · make-icons.sh
 ```
 

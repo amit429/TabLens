@@ -21,9 +21,8 @@ export interface Settings {
   similarity: number;
   ai: {
     mode: AiMode;
+    /** The user agreed to send short tab descriptors to TabLens AI (Gemini, hosted by TabLens). Asked once. */
     cloudConsent: boolean;
-    apiKey: string;
-    model: string;
   };
   privacy: {
     excludedDomains: string[];
@@ -40,6 +39,8 @@ export interface Settings {
   };
   onboarded: boolean;
   installedAt: number;
+  /** Random id used only for TabLens AI's per-install daily quota. Not linked to you. */
+  installId: string;
 }
 
 export const SENSITIVE_PRESETS: Record<string, string[]> = {
@@ -65,7 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
   weights: { active: 0.4, scroll: 0.3, visits: 0.2, interactions: 0.1 },
   confidenceThreshold: 0.35,
   similarity: 0.18,
-  ai: { mode: 'auto', cloudConsent: false, apiKey: '', model: 'gemini-3.8-flash' },
+  ai: { mode: 'auto', cloudConsent: false },
   privacy: {
     excludedDomains: [
       ...SENSITIVE_PRESETS.Banking!,
@@ -80,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   features: { alreadyOpenNudge: true, weeklyDigest: true, dailyAnalysis: true, badge: true },
   onboarded: false,
   installedAt: 0,
+  installId: '',
 };
 
 const KEY = 'settings';

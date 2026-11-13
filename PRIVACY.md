@@ -7,8 +7,8 @@ TabLens is a browser extension that helps you understand and tidy your open tabs
 ## The short version
 
 - Everything TabLens records stays in your browser, in the extension's own storage.
-- There is no TabLens account, server, analytics or tracking.
-- The only time anything leaves your browser is if **you** turn on the Gemini API in Settings and give it your own key. Then a short description of each tab is sent to Google's Gemini API to name your missions.
+- There is no TabLens account, analytics or tracking. The only server is the optional TabLens AI API, which stores no tab content.
+- The only time anything leaves your browser is if **you** turn on TabLens AI (asked once during setup, changeable in Settings). Then a short description of each tab is sent to the TabLens API, which asks Google Gemini to name your missions. If Gemini Nano runs on your device, it's used instead and nothing leaves.
 
 ## What TabLens stores on your device
 
@@ -22,7 +22,7 @@ TabLens is a browser extension that helps you understand and tidy your open tabs
 | Page snapshot: up to 2,000 words of main text, headings, description, detected page type | To understand what each tab is about | Deleted 7 days after the tab closes (configurable) |
 | Archive entries: title, URL, mission name, date | So closed tabs can be restored | Until you delete them |
 | Saves, notes, reasons and reminders you add; learned grouping rules | Your library and corrections | Until you delete them |
-| Settings, including your Gemini API key if you add one | Configuration | Until you delete them |
+| Settings and a random install id (used only for TabLens AI's daily limits) | Configuration | Until you delete them |
 
 Passwords, form contents and anything you type are never read or stored.
 
@@ -38,7 +38,7 @@ Page reading is optional and off until you allow it. Even when it's on, TabLens 
 ## AI
 
 - **Gemini Nano (on device):** when your browser supports Chrome's built-in AI, mission names and summaries are generated locally. Nothing leaves your device.
-- **Gemini API (optional, off by default):** if you turn it on and add your own Gemini API key, TabLens sends Google a short descriptor per tab — title, site, page type and at most about 100 words of summary — to name missions and summarise pages. Full page text, form data and behaviour history are never sent. Requests go directly from your browser to Google under your key and are subject to [Google's Gemini API terms](https://ai.google.dev/gemini-api/terms).
+- **TabLens AI (optional, asked once):** if you turn it on, TabLens sends a short descriptor per tab — title, site, page type and at most about 100 words of summary — to the TabLens API (a Cloudflare Worker run by TabLens), which forwards it to Google's Gemini API and returns mission names or a page summary. Full page text, form data and behaviour history are never sent. The TabLens API does not store or log this content. It keeps only a daily request count per install, keyed by a random install id that isn't linked to you, to enforce fair-use limits. Gemini processes requests under [Google's Gemini API terms](https://ai.google.dev/gemini-api/terms).
 
 ## Bookmarks
 

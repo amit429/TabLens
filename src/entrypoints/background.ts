@@ -1,5 +1,5 @@
 import { defineBackground } from 'wxt/utils/define-background';
-import { nanoStatus, summarize, testGemini } from '@/lib/ai/router';
+import { cloudStatus, nanoStatus, summarize } from '@/lib/ai/router';
 import { db, latestAnalysis, wipeAll } from '@/lib/db';
 import * as ex from '@/lib/executor';
 import { saveForLater, touchSeen } from '@/lib/library';
@@ -21,6 +21,7 @@ export default defineBackground({
     chrome.runtime.onInstalled.addListener(async ({ reason }) => {
       const s = await getSettings();
       if (!s.installedAt) await updateSettings({ installedAt: Date.now() });
+      if (!s.installId) await updateSettings({ installId: crypto.randomUUID() });
       await tracker.reconcile(reason === 'install' ? 'install' : 'wake');
       await ensureContentScripts();
       await setupMenus();
@@ -173,7 +174,7 @@ export default defineBackground({
         return { granted };
       },
       aiStatus: async () => ({ nano: await nanoStatus() }),
-      testCloud: async () => testGemini(await getSettings()),
+      cloudStatus: async () => cloudStatus(await getSettings()),
       summarizeTab: async ({ tabId }) => {
         const t = await chrome.tabs.get(tabId);
         const snap = await db.snapshots.get(normalizeUrl(t.url ?? ''));
@@ -190,7 +191,7 @@ export default defineBackground({
         await chrome.storage.session.clear();
         await chrome.alarms.clearAll();
         await setupAlarms();
-        await updateSettings({ installedAt: Date.now(), onboarded: true });
+        await updateSettings({ installedAt: Date.now(), onboarded: true, installId: crypto.randomUUID() });
         await updateBadge();
         const left = await Promise.all([db.tabs.count(), db.snapshots.count(), db.archive.count(), db.saves.count()]);
         return { ok: left.every((n) => n === 0) };
@@ -198,7 +199,7 @@ export default defineBackground({
       exportData: async () => {
         const [archive, saves, rules, bookmarkMeta] = await Promise.all([db.archive.toArray(), db.saves.toArray(), db.rules.toArray(), db.bookmarkMeta.toArray()]);
         const settings = await getSettings();
-        return { json: JSON.stringify({ app: 'TabLens', version: 1, exportedAt: new Date().toISOString(), settings: { ...settings, ai: { ...settings.ai, apiKey: '' } }, archive, saves, rules, bookmarkMeta }, null, 2) };
+        return { json: JSON.stringify({ app: 'TabLens', version: 1, exportedAt: new Date().toISOString(), settings, archive, saves, rules, bookmarkMeta }, null, 2) };
       },
       importData: async ({ json }) => {
         try {

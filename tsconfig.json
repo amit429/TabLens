@@ -5,6 +5,14 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["chrome"]
-  }
+    "types": [
+      "chrome"
+    ]
+  },
+  "exclude": [
+    "server",
+    ".output",
+    ".output-e2e",
+    "node_modules"
+  ]
 }

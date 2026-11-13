@@ -19,6 +19,10 @@ export default defineConfig({
   },
   vite: () => ({
     plugins: [tailwindcss()],
+    define: {
+      // The TabLens API (server/) that holds the Gemini key. Override with TABLENS_API=… at build time.
+      'import.meta.env.WXT_TABLENS_API': JSON.stringify(process.env.TABLENS_API ?? 'http://localhost:8787'),
+    },
   }),
   manifest: {
     name: 'TabLens',
