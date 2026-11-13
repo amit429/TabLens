@@ -1,7 +1,8 @@
+import type { GroupColor } from '../types';
 import type { Settings } from '../settings';
 import type { Analysis, Mission, MissionKind, PageType, PlanItem, Rule, TabState, TabVerdict, TabView } from '../types';
 import { centroid, type Vector } from '../text';
-import { clusterTabs, describe, type Cluster, type Descriptor } from './cluster';
+import { clusterTabs, describe, type Descriptor } from './cluster';
 import { colorFor, heuristicName, inferKind, intentLine, missionInsight, slug } from './naming';
 import { deriveState, engagementScores, findDuplicates } from './states';
 
@@ -24,11 +25,33 @@ export type Namer = (clusters: NamerCluster[], unsorted: NamerCluster['tabs']) =
 export interface AnalyzeInput {
   tabs: TabView[];
   rules: Rule[];
-  groups: Map<number, { title: string; color?: chrome.tabGroups.Color }>;
+  groups: Map<number, { title: string; color?: GroupColor }>;
   settings: Settings;
   now?: number;
   namer?: Namer;
   engine?: Analysis['engine'];
+  /**
+   * Missions from the previous run. A new cluster that mostly overlaps a previous mission keeps its
+   * name, so missions don't get renamed every time a tab opens. With `sticky: 'user'` only names the
+   * user gave are kept (used for a fresh AI run).
+   */
+  previous?: Mission[];
+  sticky?: 'all' | 'user';
+}
+
+function stickyMatch(tabIds: number[], previous: Mission[] | undefined, sticky: 'all' | 'user'): Mission | undefined {
+  if (!previous?.length) return undefined;
+  const ids = new Set(tabIds);
+  let best: Mission | undefined;
+  let bestScore = 0;
+  for (const m of previous) {
+    if (m.id === UNSORTED_ID) continue;
+    if (sticky === 'user' ? m.source !== 'user' : m.source === 'heuristic') continue;
+    const overlap = m.tabIds.filter((id) => ids.has(id)).length;
+    const score = overlap / Math.max(ids.size, m.tabIds.length);
+    if (score >= 0.5 && score > bestScore) [best, bestScore] = [m, score];
+  }
+  return best;
 }
 
 const STATES: TabState[] = ['active', 'simmering', 'stale', 'abandoned', 'unfinished', 'duplicate', 'protected', 'no-history'];
@@ -87,8 +110,15 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
   clusters = confident;
 
   const names = new Map<string, { name: string; intent?: string; kind?: MissionKind; confidence?: number; source: Mission['source'] }>();
+  const stuck = new Set<string>();
   for (const c of clusters) {
     const ds = c.tabIds.map((id) => descs.get(id)!);
+    const prev = c.source === 'similarity' ? stickyMatch(c.tabIds, input.previous, input.sticky ?? 'all') : undefined;
+    if (prev) {
+      stuck.add(c.key);
+      names.set(c.key, { name: prev.name, intent: prev.source === 'model' ? prev.intent : undefined, kind: prev.kind, source: prev.source });
+      continue;
+    }
     names.set(c.key, {
       name: c.fixedName ?? heuristicName(ds, c.centroid),
       source: c.source === 'rule' ? 'rule' : c.source === 'user' ? 'user' : 'heuristic',
@@ -97,7 +127,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
 
   let engine: Analysis['engine'] = 'heuristic';
   if (input.namer) {
-    const free = clusters.filter((c) => c.source === 'similarity');
+    const free = clusters.filter((c) => c.source === 'similarity' && !stuck.has(c.key));
     const toNamer = (id: number) => {
       const d = descs.get(id)!;
       return { id, title: d.title, site: d.site, pageType: d.pageType, summary: d.summary.slice(0, 600) };
@@ -163,7 +193,7 @@ export async function analyze(input: AnalyzeInput): Promise<Analysis> {
     const ds = m.tabIds.map((tid) => descs.get(tid)!);
     const c = vecs.get(key)!;
     if (!m.intent) m.intent = intentLine(mt, ds, c);
-    if (m.source !== 'model') m.kind = inferKind(ds);
+    if (m.source !== 'model' && m.source !== 'user') m.kind = inferKind(ds);
     m.keywords = [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([t]) => t);
     m.insight = missionInsight(mt, ds, verdicts);
     // Already mirrored to a single Chrome group?

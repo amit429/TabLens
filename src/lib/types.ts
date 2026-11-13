@@ -1,3 +1,6 @@
+/** Chrome tab group colours as a plain string union (@types/chrome models them as an enum). */
+export type GroupColor = 'grey' | 'blue' | 'red' | 'yellow' | 'green' | 'pink' | 'purple' | 'cyan' | 'orange';
+
 export type TabState =
   | 'active'
   | 'simmering'
@@ -63,6 +66,9 @@ export interface Snapshot {
   keywords: string[];
   siteName?: string;
   capturedAt: number;
+  /** AI summary (Gemini Nano or Gemini API), generated on demand for the dossier. */
+  aiSummary?: string;
+  aiTopics?: string[];
 }
 
 /** A tab as the analysis engine sees it: live Chrome data merged with the behaviour record and snapshot. */
@@ -113,7 +119,7 @@ export interface Mission {
   name: string;
   intent: string;
   kind: MissionKind;
-  color: chrome.tabGroups.Color;
+  color: GroupColor;
   tabIds: number[];
   confidence: number;
   source: 'model' | 'heuristic' | 'user' | 'rule';

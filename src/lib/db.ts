@@ -1,3 +1,4 @@
+import type { GroupColor } from './types';
 import Dexie, { type EntityTable } from 'dexie';
 import type { Analysis, ArchiveEntry, BookmarkMeta, Rule, Save, Snapshot, TabRecord } from './types';
 
@@ -12,7 +13,7 @@ export type UndoOp =
   | { kind: 'reopen'; tabs: { url: string; windowId?: number; index?: number; pinned?: boolean; groupKey?: string }[]; archiveIds: string[] }
   | { kind: 'regroup'; moves: { tabId: number; groupId: number; windowId: number; index: number }[] }
   | { kind: 'ungroup-created'; groupIds: number[] }
-  | { kind: 'restore-groups'; groups: { groupId: number; title?: string; color?: chrome.tabGroups.Color; collapsed: boolean }[] }
+  | { kind: 'restore-groups'; groups: { groupId: number; title?: string; color?: GroupColor; collapsed: boolean }[] }
   | { kind: 'delete-rules'; ruleIds: string[] }
   | { kind: 'unkeep'; tabIds: number[] }
   | { kind: 'delete-saves'; saveIds: string[] }

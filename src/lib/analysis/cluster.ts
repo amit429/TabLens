@@ -104,7 +104,7 @@ export function clusterTabs(tabs: TabView[], descs: Map<number, Descriptor>, opt
   for (const t of tabs) {
     const rule = rules.find((r) => ruleMatches(r, t.url));
     if (!rule) continue;
-    const b = ruleBuckets.get(rule.missionName) ?? { ids: [], ev: new Map() };
+    const b = ruleBuckets.get(rule.missionName) ?? { ids: [] as number[], ev: new Map<number, Reason[]>() };
     b.ids.push(t.id);
     b.ev.set(t.id, [{ code: 'rule', text: `Matches your rule: ${rule.pattern} → ${rule.missionName}` }]);
     ruleBuckets.set(rule.missionName, b);

@@ -18,7 +18,7 @@ Built in small vertical slices; each slice ends in a commit that builds and pass
 | 12 | Library: bookmarks + saves with intent | Topic/folder/intent views, last seen |
 | 13 | Archive + snooze | Restore, resume mission in new window, snooze wakes tabs |
 | 14 | Settings | All controls persist; delete all data empties storage |
-| 15 | AI: Gemini Nano + cloud (BYO key) routing | Falls back cleanly when unavailable |
+| 15 | AI: Gemini Nano on-device + Gemini API (your key) routing, AI page summaries | Falls back cleanly when unavailable |
 | 16 | Side panel, context menus, already-open nudge, badge, digest | — |
 | 17 | Polish, onboarding, README, privacy policy | Screenshots in README |
 

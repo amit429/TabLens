@@ -107,7 +107,6 @@ export function deriveState(
   const { now, settings, engagement, pageType } = ctx;
   const th = settings.thresholds;
   const r = t.record;
-  const reasons: Reason[] = [];
   const flags: TabState[] = [];
   const idleMs = now - lastUsed(t);
   const days = idleMs / DAY;

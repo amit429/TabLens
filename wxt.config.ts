@@ -4,6 +4,13 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
+  hooks: {
+    // Content scripts are registered at runtime after the user opts in, so page access must stay
+    // optional. WXT would otherwise add the script's match patterns as install-time host permissions.
+    'build:manifestGenerated': (_wxt, manifest) => {
+      delete manifest.host_permissions;
+    },
+  },
   vite: () => ({
     plugins: [tailwindcss()],
   }),

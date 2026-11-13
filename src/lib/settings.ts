@@ -65,7 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   weights: { active: 0.4, scroll: 0.3, visits: 0.2, interactions: 0.1 },
   confidenceThreshold: 0.35,
   similarity: 0.22,
-  ai: { mode: 'auto', cloudConsent: false, apiKey: '', model: 'claude-haiku-4-5' },
+  ai: { mode: 'auto', cloudConsent: false, apiKey: '', model: 'gemini-3.8-flash' },
   privacy: {
     excludedDomains: [
       ...SENSITIVE_PRESETS.Banking!,

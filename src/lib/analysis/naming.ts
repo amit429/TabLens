@@ -1,11 +1,12 @@
+import type { GroupColor } from '../types';
 import type { MissionKind, PageType, TabView, TabVerdict } from '../types';
 import { titleCase, topTerms, type Vector } from '../text';
 import type { Descriptor } from './cluster';
 import { siteHint } from './pagetype';
 
-export const GROUP_COLORS: chrome.tabGroups.Color[] = ['blue', 'green', 'purple', 'orange', 'cyan', 'pink', 'yellow', 'red', 'grey'];
+export const GROUP_COLORS: GroupColor[] = ['blue', 'green', 'purple', 'orange', 'cyan', 'pink', 'yellow', 'red', 'grey'];
 
-export function colorFor(name: string): chrome.tabGroups.Color {
+export function colorFor(name: string): GroupColor {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return GROUP_COLORS[h % (GROUP_COLORS.length - 1)]!;
