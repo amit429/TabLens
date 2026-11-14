@@ -21,12 +21,12 @@ Prompts, request limits and response schemas live in [`src/lib/ai/contract.ts`](
 ## Abuse protection
 
 - **Fixed prompts, capped input.** The Worker only runs its own two prompts on size-limited, schema-validated input, so it can't be used as a general Gemini endpoint.
-- **Caller check.** Requests must come from a Chrome extension (Origin `chrome-extension://…`, or the `X-TabLens-Extension` header when Chrome omits Origin). Web pages always send their own Origin and are rejected. Set `ALLOWED_EXTENSION_IDS` to your published extension id(s) in production.
+- **Caller check, fail closed.** Only extensions listed in the `ALLOWED_EXTENSION_IDS` secret get in (Origin `chrome-extension://…`, or the `X-TabLens-Extension` header when Chrome omits Origin). Unset means every request is refused; `*` allows any extension, for local development only. Web pages always send their own Origin and are rejected.
 - **Rate limits.** 20 requests/minute per install and 60/minute per IP (Workers Rate Limiting).
-- **Daily quota per install.** 60 analyses and 200 summaries by default (`DAILY_NAMING_LIMIT`, `DAILY_SUMMARY_LIMIT`), counted in KV under a random install id.
+- **Daily quotas.** Per install: 60 analyses and 200 summaries (`DAILY_NAMING_LIMIT`, `DAILY_SUMMARY_LIMIT`). Per IP: 300 calls (`DAILY_IP_LIMIT`) — install ids are self-asserted, IPs aren't. In total: 3,000 calls (`DAILY_GLOBAL_LIMIT`) — the hard ceiling on your Gemini spend, whoever finds the URL.
 - **No content logging.** Only error classes are logged; tab data is never stored.
 
-Non-browser scripts can fake any header, so the caller check is a deterrent; the narrow endpoints, rate limits, quotas and a spend cap on the Gemini key are what bound cost.
+A published extension's API URL and id are public by nature (anyone can read an extension's code), and scripts can fake headers — so the caller check is a deterrent. What bounds your bill is server-side: the narrow endpoints, rate limits, the per-IP and global daily caps, and a budget alert on the Gemini key's Google Cloud project.
 
 ## Develop
 
@@ -42,17 +42,18 @@ Build the extension against it: `TABLENS_API=http://localhost:8787 pnpm build` (
 
 ## Deploy
 
-**From the Cloudflare dashboard (no terminal):** Workers & Pages → Create → Import a repository → this repo, project name `tablens-api`, root directory `server`, deploy command `npx wrangler deploy`. Then the Worker's Settings → Variables and Secrets → Add → type **Secret**, name `GEMINI_API_KEY`. Every push to `main` redeploys.
+**From the Cloudflare dashboard (no terminal):** Workers & Pages → Create → Import a repository → this repo, project name `tablens-api`, root directory `server`, deploy command `npx wrangler deploy`. Then the Worker's Settings → Variables and Secrets → Add two values of type **Secret**: `GEMINI_API_KEY` (your key) and `ALLOWED_EXTENSION_IDS` (your extension id from `pnpm keygen`). Every push to `main` redeploys; secrets survive redeploys.
 
 **From the terminal:**
 
 ```bash
 cd server
 npx wrangler login
-npx wrangler secret put GEMINI_API_KEY    # paste the key when prompted; it never touches the repo
+npx wrangler secret put GEMINI_API_KEY          # paste the key when prompted; it never touches the repo
+npx wrangler secret put ALLOWED_EXTENSION_IDS   # your extension id(s) from `pnpm keygen`
 npx wrangler deploy                       # prints https://tablens-api.<your-subdomain>.workers.dev
 ```
 
-Production: `https://tablens-api.amitpile2002.workers.dev` (the extension's default). `ALLOWED_EXTENSION_IDS` holds the pinned dev id; add the Chrome Web Store id after publishing (`pnpm zip:store` builds without the manifest key, which the store rejects).
+Then, in the repo root: put the Worker URL in `TABLENS_API` in `.env`, run `pnpm keygen` to pin your extension id, and add that id as the `ALLOWED_EXTENSION_IDS` secret (comma-separate several, e.g. your dev id and your Chrome Web Store id). Rebuild the extension.
 
 Cost control: `gemini-3.5-flash-lite` is the default model (`GEMINI_MODEL`). Also set a budget alert on the Google Cloud project that owns the key.

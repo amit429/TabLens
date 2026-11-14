@@ -1,3 +1,5 @@
 # Copy to .dev.vars for `pnpm dev`. Never commit .dev.vars.
-# Use your real Gemini key, or GEMINI_API_KEY=mock for deterministic fake answers (no cost).
-GEMINI_API_KEY=your-gemini-api-key
+# Your real Gemini key, or "mock" for deterministic fake answers (no cost).
+GEMINI_API_KEY=mock
+# Which extensions may call the API. "*" = any (fine locally). In production set your extension id.
+ALLOWED_EXTENSION_IDS=*

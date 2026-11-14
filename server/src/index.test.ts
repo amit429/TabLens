@@ -12,7 +12,9 @@ function env(over: Partial<Env> = {}): Env {
     GEMINI_MODEL: 'gemini-test',
     DAILY_NAMING_LIMIT: '2',
     DAILY_SUMMARY_LIMIT: '5',
-    ALLOWED_EXTENSION_IDS: '',
+    DAILY_IP_LIMIT: '100',
+    DAILY_GLOBAL_LIMIT: '1000',
+    ALLOWED_EXTENSION_IDS: '*',
     QUOTA: { get: async (k: string) => store.get(k) ?? null, put: async (k: string, v: string) => void store.set(k, v) } as unknown as KVNamespace,
     INSTALL_LIMITER: { limit: async () => ({ success: true }) },
     IP_LIMITER: { limit: async () => ({ success: true }) },
@@ -60,6 +62,26 @@ describe('TabLens API', () => {
     expect(spoof.status).toBe(403);
     const none = await handle(req('/v1/quota', { origin: null }), env(), fakeGemini);
     expect(none.status).toBe(403);
+  });
+
+  it('refuses everything when no allow-list is configured (fail closed)', async () => {
+    const r = await handle(req('/v1/quota'), env({ ALLOWED_EXTENSION_IDS: undefined }), fakeGemini);
+    expect(r.status).toBe(403);
+    const ok = await handle(req('/v1/quota'), env({ ALLOWED_EXTENSION_IDS: 'abcdefghijklmnopabcdefghijklmnop' }), fakeGemini);
+    expect(ok.status).toBe(200);
+  });
+
+  it('caps calls per IP and in total, whatever install id is claimed', async () => {
+    const e = env({ DAILY_NAMING_LIMIT: '100', DAILY_IP_LIMIT: '2', DAILY_GLOBAL_LIMIT: '1000' });
+    const call = (install: string) =>
+      handle(req('/v1/name-missions', { method: 'POST', install, body: JSON.stringify(body), headers: { 'CF-Connecting-IP': '1.2.3.4' } }), e, fakeGemini);
+    // Rotating install ids doesn't get past the per-IP cap.
+    expect((await call('11111111-1111-4111-8111-111111111111')).status).toBe(200);
+    expect((await call('22222222-2222-4222-8222-222222222222')).status).toBe(200);
+    expect((await call('33333333-3333-4333-8333-333333333333')).status).toBe(429);
+    const g = env({ DAILY_NAMING_LIMIT: '100', DAILY_IP_LIMIT: '100', DAILY_GLOBAL_LIMIT: '1' });
+    expect((await handle(req('/v1/name-missions', { method: 'POST', body: JSON.stringify(body) }), g, fakeGemini)).status).toBe(200);
+    expect((await handle(req('/v1/name-missions', { method: 'POST', body: JSON.stringify(body) }), g, fakeGemini)).status).toBe(503);
   });
 
   it('answers CORS preflight for the extension', async () => {

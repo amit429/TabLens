@@ -28,8 +28,9 @@ import {
  *  3. No model — heuristic names from the clustering engine.
  */
 
-/** Where the TabLens API lives. Set at build time with TABLENS_API (see wxt.config.ts). */
-export const API_BASE: string = import.meta.env.WXT_TABLENS_API || 'https://tablens-api.amitpile2002.workers.dev';
+/** Where the TabLens API lives, set at build time from TABLENS_API (.env). Empty = no cloud AI in this build. */
+export const API_BASE: string = import.meta.env.WXT_TABLENS_API || '';
+export const CLOUD_AVAILABLE = API_BASE.length > 0;
 
 interface LanguageModelSession {
   prompt(input: string, opts?: { responseConstraint?: object; signal?: AbortSignal }): Promise<string>;
@@ -98,6 +99,7 @@ export class CloudError extends Error {
 }
 
 async function call<T>(settings: Settings, path: string, init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number }): Promise<T> {
+  if (!CLOUD_AVAILABLE) throw new CloudError('This build has no TabLens AI server configured.', 'not_configured', 0);
   if (!settings.installId) settings = await updateSettings({ installId: crypto.randomUUID() });
   let res: Response;
   try {
@@ -164,7 +166,7 @@ export async function summarize(settings: Settings, snap: Snapshot): Promise<{ s
       s.destroy();
     }
   }
-  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) {
+  if (CLOUD_AVAILABLE && (mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) {
     const out = await call<z.infer<typeof SummarySchema>>(settings, API_PATHS.summarize, { method: 'POST', body: summaryRequest(snap) });
     return { ...SummarySchema.parse(out), engine: 'cloud' };
   }
@@ -181,7 +183,7 @@ export async function summarize(settings: Settings, snap: Snapshot): Promise<{ s
 export async function pickEngine(settings: Settings): Promise<{ organizer?: Organizer; namer?: Namer; engine: 'nano' | 'cloud' | 'heuristic' }> {
   const mode = settings.ai.mode;
   if (mode === 'off') return { engine: 'heuristic' };
-  if ((mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) return { organizer: cloudOrganizer(settings), engine: 'cloud' };
+  if (CLOUD_AVAILABLE && (mode === 'auto' || mode === 'cloud') && settings.ai.cloudConsent) return { organizer: cloudOrganizer(settings), engine: 'cloud' };
   if ((mode === 'auto' || mode === 'nano') && (await nanoStatus()) === 'available') return { namer: nanoNamer, engine: 'nano' };
   return { engine: 'heuristic' };
 }

@@ -141,7 +141,14 @@ pnpm build
 
 Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `.output/chrome-mv3`. Works in Chrome, Edge, Brave and Arc.
 
-TabLens AI works out of the box: builds talk to the hosted TabLens API (`https://tablens-api.amitpile2002.workers.dev`), which only accepts this extension's pinned id `pcafglkkkambggigaheapgbiogepdnnd`. To use your own API instead, build with `TABLENS_API=https://… pnpm build` — see [server/README.md](server/README.md).
+A source build has **no cloud AI server configured** — it works with Gemini Nano (on device, where supported) and heuristics. To get Gemini organising your tabs, host your own TabLens API (free on Cloudflare, ~5 minutes):
+
+1. Deploy `server/` to Cloudflare Workers and add your Gemini key as a secret — [server/README.md](server/README.md).
+2. `cp .env.example .env`, set `TABLENS_API` to your Worker's URL.
+3. `pnpm keygen` — pins your extension id and prints it; add that id to your Worker's `ALLOWED_EXTENSION_IDS` secret.
+4. `pnpm build` and reload the extension.
+
+Nothing deployment-specific is committed: the API URL and extension key live in your git-ignored `.env`.
 
 For development with hot reload: `pnpm dev` (opens a Chrome with the extension loaded).
 

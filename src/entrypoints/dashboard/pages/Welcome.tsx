@@ -11,13 +11,14 @@ import { updateSettings } from '@/lib/settings';
 import { rpc } from '@/lib/rpc';
 import { act } from '@/lib/ui-actions';
 import { cn } from '@/lib/cn';
+import { CLOUD_AVAILABLE } from '@/lib/ai/router';
 
 const STEPS = ['Your tabs', 'Page reading', 'Your missions'];
 
 export default function Welcome() {
   const { analysis, tabs, navigate, live } = useDashboard();
   const [step, setStep] = React.useState(0);
-  const [useAi, setUseAi] = React.useState(true);
+  const [useAi, setUseAi] = React.useState(CLOUD_AVAILABLE);
   const [organizing, setOrganizing] = React.useState(false);
   const access = usePageAccess();
   const items = tabs.map((t) => ({ id: t.id!, title: t.title ?? '', url: t.url, state: analysis?.verdicts[t.id!]?.state ?? 'no-history' }));
@@ -76,6 +77,7 @@ export default function Welcome() {
               <Spectrum items={items} height={56} className="mt-8 rounded-[10px]" animateKey={String(tabs.length)} />
               <SpectrumLegend items={items} className="mt-3" />
 
+              {CLOUD_AVAILABLE && (
               <label className={cn('mt-8 flex cursor-pointer items-start gap-4 rounded-[14px] border bg-card p-4', useAi ? 'border-foreground' : 'border-border')}>
                 <Sparkles className="mt-0.5 size-5 shrink-0" />
                 <span className="min-w-0 flex-1">
@@ -86,6 +88,7 @@ export default function Welcome() {
                 </span>
                 <Switch checked={useAi} onCheckedChange={setUseAi} aria-label="Organise my tabs with Gemini" />
               </label>
+              )}
               <p className="mt-4 flex items-start gap-2 text-[13px] text-muted-foreground">
                 <Lock className="mt-0.5 size-4 shrink-0" /> Tabs open before today are labelled “No history yet” instead of being guessed as stale. Nothing is closed or grouped without your click.
               </p>

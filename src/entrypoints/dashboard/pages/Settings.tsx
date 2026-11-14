@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { usePageAccess, requestAccess } from '@/hooks/access';
 import { useSettings } from '@/hooks/data';
 import { DEFAULT_SETTINGS, SENSITIVE_PRESETS, isPaused, updateSettings, type AiMode, type Settings as S } from '@/lib/settings';
-import { downloadNano, type NanoStatus } from '@/lib/ai/router';
+import { CLOUD_AVAILABLE, downloadNano, type NanoStatus } from '@/lib/ai/router';
 import { buildUserPrompt } from '@/lib/ai/contract';
 import { db, uid } from '@/lib/db';
 import { rpc, type RpcMap } from '@/lib/rpc';
@@ -310,7 +310,7 @@ function Ai({ s }: { s: S }) {
           options={[
             { value: 'auto', label: 'Automatic' },
             { value: 'nano', label: 'On device only' },
-            { value: 'cloud', label: 'TabLens AI' },
+            ...(CLOUD_AVAILABLE ? [{ value: 'cloud' as const, label: 'TabLens AI' }] : []),
             { value: 'off', label: 'Off' },
           ]}
         />
@@ -354,9 +354,28 @@ function Ai({ s }: { s: S }) {
         }
         hint="Sends a short descriptor per tab — title, site, page type and up to 100 words of summary — to TabLens's server, which asks Google Gemini to organise them. Runs on Re-analyse, once a day, and when several new tabs pile up (at most every 10 minutes). Never full page text, form data or your history; nothing is stored or logged."
       >
-        <Switch checked={s.ai.cloudConsent} onCheckedChange={(v) => updateSettings({ ai: { cloudConsent: v } })} aria-label="Use TabLens AI" />
+        {CLOUD_AVAILABLE ? (
+          <Switch checked={s.ai.cloudConsent} onCheckedChange={(v) => updateSettings({ ai: { cloudConsent: v } })} aria-label="Use TabLens AI" />
+        ) : (
+          <Badge>Not set up in this build</Badge>
+        )}
       </Row>
-      {s.ai.cloudConsent && (
+      {!CLOUD_AVAILABLE && (
+        <Row
+          label="Set up TabLens AI"
+          hint={
+            <>
+              This build has no AI server. To turn it on, deploy the TabLens API from the repo's <code>server/</code> folder to Cloudflare with your own Gemini key, put its URL in <code>TABLENS_API</code> in <code>.env</code>, and rebuild. Gemini Nano and heuristics work meanwhile.
+            </>
+          }
+          wide
+        >
+          <Button variant="outline" onClick={() => chrome.tabs.create({ url: 'https://github.com/amit429/TabLens/tree/main/server#readme' })}>
+            How to deploy
+          </Button>
+        </Row>
+      )}
+      {CLOUD_AVAILABLE && s.ai.cloudConsent && (
         <Row
           label="Status"
           hint={

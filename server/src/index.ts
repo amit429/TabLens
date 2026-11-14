@@ -27,7 +27,8 @@ import { geminiGenerator, mockGenerator, UpstreamError, type Generate } from './
  * TabLens API. A deliberately narrow proxy in front of Gemini:
  * - holds the Gemini key so the extension never ships one,
  * - only runs two fixed prompts (name missions, summarise a page) on size-capped input,
- * - rate-limits per install and per IP, with a daily quota per install,
+ * - only answers extensions on the allow-list (a secret; with none set it refuses everything),
+ * - rate-limits per install and per IP, with daily quotas per install, per IP and in total,
  * - never logs or stores request content.
  */
 
@@ -36,7 +37,15 @@ export interface Env {
   GEMINI_MODEL: string;
   DAILY_NAMING_LIMIT: string;
   DAILY_SUMMARY_LIMIT: string;
-  ALLOWED_EXTENSION_IDS: string;
+  /** Per IP per day, across installs — install ids are self-asserted, IPs aren't. */
+  DAILY_IP_LIMIT: string;
+  /** All callers together per day: the hard ceiling on Gemini spend. */
+  DAILY_GLOBAL_LIMIT: string;
+  /**
+   * Secret. Comma-separated extension ids allowed to call the API, or "*" for any extension
+   * (local development only). Unset means the API refuses every request (fail closed).
+   */
+  ALLOWED_EXTENSION_IDS?: string;
   QUOTA: KVNamespace;
   INSTALL_LIMITER: RateLimit;
   IP_LIMITER: RateLimit;
@@ -82,29 +91,29 @@ export async function handle(request: Request, env: Env, generate: Generate): Pr
     if (url.pathname === API_PATHS.organize && request.method === 'POST') {
       const body = OrganizeRequestSchema.parse(await readJson(request));
       if (!body.tabs.length) return json({ missions: [], unsorted: [] }, 200, cors);
-      const limited = await overQuota(env, install, 'naming');
+      const limited = await overQuota(env, install, 'naming', ip);
       if (limited) return limited(cors);
       const out = await generate({ system: ORGANIZE_PROMPT, user: buildOrganizePrompt(body), schema: OrganizeSchema, maxOutputTokens: 16384 });
-      await bump(env, install, 'naming');
+      await bump(env, install, 'naming', ip);
       return json(sanitizeOrganize(out, body), 200, cors);
     }
 
     if (url.pathname === API_PATHS.nameMissions && request.method === 'POST') {
       const body = NameMissionsRequestSchema.parse(await readJson(request));
       if (!body.clusters.length) return json({ missions: [], assignments: [], merges: [] }, 200, cors);
-      const limited = await overQuota(env, install, 'naming');
+      const limited = await overQuota(env, install, 'naming', ip);
       if (limited) return limited(cors);
       const out = await generate({ system: SYSTEM_PROMPT, user: buildUserPrompt(body.clusters, body.unsorted), schema: NamerSchema });
-      await bump(env, install, 'naming');
+      await bump(env, install, 'naming', ip);
       return json(sanitize(out, body.clusters), 200, cors);
     }
 
     if (url.pathname === API_PATHS.summarize && request.method === 'POST') {
       const body = SummarizeRequestSchema.parse(await readJson(request));
-      const limited = await overQuota(env, install, 'summaries');
+      const limited = await overQuota(env, install, 'summaries', ip);
       if (limited) return limited(cors);
       const out = await generate({ system: SUMMARY_PROMPT, user: buildSummaryInput(body), schema: SummarySchema });
-      await bump(env, install, 'summaries');
+      await bump(env, install, 'summaries', ip);
       return json({ summary: out.summary.slice(0, 400), topics: out.topics.slice(0, 5).map((t) => t.slice(0, 30)) }, 200, cors);
     }
 
@@ -136,8 +145,9 @@ function corsFor(origin: string, extensionHeader: string | null, env: Env): Reco
   const fromOrigin = /^chrome-extension:\/\/([a-p]{32})$/.exec(origin)?.[1];
   const id = origin ? fromOrigin : extensionHeader && /^[a-p]{32}$/.test(extensionHeader) ? extensionHeader : undefined;
   if (!id) return null;
-  const allowed = env.ALLOWED_EXTENSION_IDS.split(',').map((s) => s.trim()).filter(Boolean);
-  if (allowed.length && !allowed.includes(id)) return null;
+  // Fail closed: no allow-list configured means nobody gets in. "*" opens it up for local dev.
+  const allowed = (env.ALLOWED_EXTENSION_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!allowed.includes('*') && !allowed.includes(id)) return null;
   return {
     'Access-Control-Allow-Origin': origin || `chrome-extension://${id}`,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -173,17 +183,30 @@ async function used(env: Env, install: string, kind: Kind) {
   return Number((await env.QUOTA.get(`${kind}:${install}:${day()}`)) ?? 0);
 }
 
-async function overQuota(env: Env, install: string, kind: Kind) {
+async function overQuota(env: Env, install: string, kind: Kind, ip = 'unknown') {
+  const [byIp, total] = await Promise.all([counter(env, `ip:${ip}:${day()}`), counter(env, `global:${day()}`)]);
+  if (total >= (Number(env.DAILY_GLOBAL_LIMIT) || 0))
+    return (cors: Record<string, string>) => json({ error: 'busy', message: 'TabLens AI has reached its daily capacity. It resets at midnight UTC.' }, 503, cors);
+  if (byIp >= (Number(env.DAILY_IP_LIMIT) || 0))
+    return (cors: Record<string, string>) => json({ error: 'daily_limit', message: 'Daily AI limit reached for this network. It resets at midnight UTC.' }, 429, cors);
   const n = await used(env, install, kind);
   if (n < limitFor(env, kind)) return null;
   return (cors: Record<string, string>) =>
     json({ error: 'daily_limit', message: `Daily AI limit reached (${limitFor(env, kind)} ${kind === 'naming' ? 'analyses' : 'summaries'}). It resets at midnight UTC.` }, 429, cors);
 }
 
-async function bump(env: Env, install: string, kind: Kind) {
-  const key = `${kind}:${install}:${day()}`;
-  const n = Number((await env.QUOTA.get(key)) ?? 0);
-  await env.QUOTA.put(key, String(n + 1), { expirationTtl: 2 * 86_400 });
+async function counter(env: Env, key: string) {
+  return Number((await env.QUOTA.get(key)) ?? 0);
+}
+
+/** KV counters are approximate under concurrency, which is fine for fair-use caps. */
+async function bump(env: Env, install: string, kind: Kind, ip = 'unknown') {
+  await Promise.all(
+    [`${kind}:${install}:${day()}`, `ip:${ip}:${day()}`, `global:${day()}`].map(async (key) => {
+      const n = await counter(env, key);
+      await env.QUOTA.put(key, String(n + 1), { expirationTtl: 2 * 86_400 });
+    }),
+  );
 }
 
 async function quota(env: Env, install: string): Promise<QuotaInfo> {

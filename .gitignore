@@ -6,6 +6,7 @@ dist
 .DS_Store
 coverage
 .env*
+!.env.example
 web-ext.config.ts
 stats.html
 .output-e2e
