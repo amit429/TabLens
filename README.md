@@ -13,6 +13,12 @@
   <img src="docs/screenshots/overview.png" alt="TabLens dashboard overview: every open tab as a slice of a coloured spectrum, a summary, unfinished work and the cleanup plan" width="100%">
 </p>
 
+## See it in 33 seconds
+
+<a href="assets/TabLens-launch.mp4"><img src="docs/screenshots/demo-video.jpg" alt="Play the TabLens launch video: tabs from three windows regrouped into named Chrome tab groups" width="100%"></a>
+
+[▶ Watch the launch video](assets/TabLens-launch.mp4) (MP4, 33 s): a crushed tab strip, every tab sorted by how you've used it, the cleanup plan, "why it's here", dragging a tab into a mission, and three windows regrouping into real Chrome tab groups.
+
 ---
 
 Most tab groupers sort by title and URL. TabLens adds two layers they don't have:
@@ -114,11 +120,18 @@ With TabLens AI on (one click during setup), **Gemini organises your tabs from t
 extension ──short tab descriptors──▶ TabLens API (Cloudflare Worker, holds the Gemini key) ──▶ Gemini
 ```
 
-The key is never in the extension (anyone can unzip an extension and read it). The Worker only runs two fixed prompts on size-capped input, rate-limits per install and per IP, and enforces a daily quota per install. See [server/README.md](server/README.md) to run or deploy it.
+The key is never in the extension (anyone can unzip an extension and read it). The Worker:
+
+- only runs fixed prompts (organise tabs, name missions, summarise a page) on size-capped, validated input;
+- only answers extensions on its allow-list (`ALLOWED_EXTENSION_IDS`, a secret that fails closed when unset);
+- rate-limits per install and per IP, with daily caps per install, per IP and in total, so the bill has a hard ceiling;
+- never stores or logs tab content.
+
+See [server/README.md](server/README.md) to run or deploy your own.
 
 ## Privacy
 
-Everything is stored locally in the extension's IndexedDB. No account, no server, no analytics.
+Everything is stored locally in the extension's IndexedDB. No account, no analytics. The only server is the optional TabLens AI API, which stores no tab content.
 
 - Page access is **optional** and requested only after you've seen a title-only report. Without it TabLens groups by titles and URLs.
 - Form values, passwords and what you type are **never** captured — only click/key *counts* and a true/false "form started" flag. (The end-to-end test asserts this.)
@@ -139,7 +152,7 @@ pnpm install
 pnpm build
 ```
 
-Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `dist/chrome-mv3`. Works in Chrome, Edge, Brave and Arc.
+Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `dist/chrome-mv3`. Works in Chromium browsers with tab groups: Chrome, Edge and Brave.
 
 A source build has **no cloud AI server configured** — it works with Gemini Nano (on device, where supported) and heuristics. To get Gemini organising your tabs, host your own TabLens API (free on Cloudflare, ~5 minutes):
 
@@ -168,7 +181,7 @@ For development with hot reload: `pnpm dev` (opens a Chrome with the extension l
                                  IndexedDB (Dexie) + chrome.storage
 ```
 
-**Analysis pipeline:** your rules → titled Chrome groups you made → same repository → opener chains (only when content agrees) → TF-IDF average-linkage clustering with a same-site bonus → optional Gemini naming/merging → per-tab state, engagement score (`0.4·active + 0.3·scroll + 0.2·visits + 0.1·interactions`, each normalised across your own tabs), plain-language reasons and the cleanup plan. 300 tabs analyse in well under a second.
+**Analysis pipeline:** your rules → titled Chrome groups you made → same repository → opener chains (only when content agrees) → TF-IDF average-linkage clustering with shared-title-word and same-site bonuses → with TabLens AI on, Gemini decides the final missions using those clusters as hints (your groups, rules and renames stay fixed) → per-tab state, engagement score (`0.4·active + 0.3·scroll + 0.2·visits + 0.1·interactions`, each normalised across your own tabs), plain-language reasons and the cleanup plan. 300 tabs analyse in well under a second.
 
 More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [Architecture](docs/ARCHITECTURE.md) · [Development plan](docs/DEVELOPMENT-PLAN.md) · [Original PRD](docs/PRD-v1-original.md)
 
@@ -178,7 +191,10 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 | --- | --- |
 | `pnpm dev` | Dev build with HMR in a fresh Chrome profile |
 | `pnpm build` | Production build to `dist/chrome-mv3` |
-| `pnpm zip` | Store-ready zip |
+| `pnpm zip` | Zip of the build (keeps your pinned extension id) |
+| `pnpm zip:store` | Chrome Web Store zip (leaves out the manifest key, which the store rejects) |
+| `pnpm keygen` | Generates your extension key into `.env` and prints the extension id for the API allow-list |
+| `pnpm dev:server` / `pnpm deploy:server` | Run the TabLens API locally / deploy it to Cloudflare |
 | `pnpm test` | Unit tests (Vitest): URL normalisation, TF-IDF, states, clustering, rules, AI merges, library shelves |
 | `pnpm compile` | Type-check |
 | `pnpm test:server` | TabLens API tests: caller check, CORS, install id, validation, rate limits, daily quota |
@@ -191,7 +207,9 @@ src/
   components/    ui/ (shadcn-style primitives) · spectrum · cleanup-plan · dossier · quick-find · save-dialog
   lib/           analysis/ (states, cluster, naming, analyze) · ai/ (contract shared with server, Nano + TabLens AI router) · tracker · executor · service · library · db · settings · rpc
 server/          TabLens API — Cloudflare Worker that holds the Gemini key
-scripts/         e2e.mjs · e2e-windows.mjs · make-icons.sh
+scripts/         e2e.mjs · e2e-windows.mjs · keygen.mjs · make-icons.sh
+assets/          launch video (outside src/, never part of the extension build)
+release/         git-ignored: tester zips, message and post drafts
 ```
 
 ## Roadmap
