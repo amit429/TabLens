@@ -141,7 +141,7 @@ pnpm build
 
 Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `.output/chrome-mv3`. Works in Chrome, Edge, Brave and Arc.
 
-To use TabLens AI from a source build, point the build at a TabLens API: `TABLENS_API=https://tablens-api.<subdomain>.workers.dev pnpm build` (or run one locally — see [server/README.md](server/README.md)).
+TabLens AI works out of the box: builds talk to the hosted TabLens API (`https://tablens-api.amitpile2002.workers.dev`), which only accepts this extension's pinned id `pcafglkkkambggigaheapgbiogepdnnd`. To use your own API instead, build with `TABLENS_API=https://… pnpm build` — see [server/README.md](server/README.md).
 
 For development with hot reload: `pnpm dev` (opens a Chrome with the extension loaded).
 

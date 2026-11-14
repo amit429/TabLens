@@ -42,6 +42,10 @@ Build the extension against it: `TABLENS_API=http://localhost:8787 pnpm build` (
 
 ## Deploy
 
+**From the Cloudflare dashboard (no terminal):** Workers & Pages → Create → Import a repository → this repo, project name `tablens-api`, root directory `server`, deploy command `npx wrangler deploy`. Then the Worker's Settings → Variables and Secrets → Add → type **Secret**, name `GEMINI_API_KEY`. Every push to `main` redeploys.
+
+**From the terminal:**
+
 ```bash
 cd server
 npx wrangler login
@@ -49,6 +53,6 @@ npx wrangler secret put GEMINI_API_KEY    # paste the key when prompted; it neve
 npx wrangler deploy                       # prints https://tablens-api.<your-subdomain>.workers.dev
 ```
 
-Then build the extension with that URL: `TABLENS_API=https://tablens-api.<your-subdomain>.workers.dev pnpm build`, and once the extension has a stable id, set `ALLOWED_EXTENSION_IDS` in `wrangler.jsonc` and redeploy.
+Production: `https://tablens-api.amitpile2002.workers.dev` (the extension's default). `ALLOWED_EXTENSION_IDS` holds the pinned dev id; add the Chrome Web Store id after publishing (`pnpm zip:store` builds without the manifest key, which the store rejects).
 
 Cost control: `gemini-3.5-flash-lite` is the default model (`GEMINI_MODEL`). Also set a budget alert on the Google Cloud project that owns the key.
