@@ -9,5 +9,5 @@ coverage
 !.env.example
 web-ext.config.ts
 stats.html
-.output-e2e
+dist-e2e
 .keys

@@ -27,4 +27,4 @@ Built in small vertical slices; each slice ends in a commit that builds and pass
 ## Testing
 
 - **Unit (Vitest)**: everything in `lib/` that is pure — URL normalisation, TF-IDF, states, engagement, clustering, plan, rules.
-- **Manual / scripted**: load `.output/chrome-mv3` in Chrome (or Playwright's Chromium with `--load-extension`) and exercise the flows against a fixture set of tabs.
+- **Manual / scripted**: load `dist/chrome-mv3` in Chrome (or Playwright's Chromium with `--load-extension`) and exercise the flows against a fixture set of tabs.

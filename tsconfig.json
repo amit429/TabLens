@@ -11,6 +11,8 @@
   },
   "exclude": [
     "server",
+    "dist",
+    "dist-e2e",
     ".output",
     ".output-e2e",
     "node_modules"

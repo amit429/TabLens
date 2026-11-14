@@ -22,7 +22,8 @@ const MANIFEST_KEY = process.env.TABLENS_MANIFEST_KEY ?? '';
 
 export default defineConfig({
   srcDir: 'src',
-  outDir: process.env.TABLENS_E2E ? '.output-e2e' : '.output',
+  // Visible folders (macOS file pickers hide dot-folders, which made "Load unpacked" awkward).
+  outDir: process.env.TABLENS_E2E ? 'dist-e2e' : 'dist',
   modules: ['@wxt-dev/module-react'],
   hooks: {
     // Content scripts are registered at runtime after the user opts in, so page access must stay

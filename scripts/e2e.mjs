@@ -13,7 +13,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const EXT = path.join(root, '.output-e2e/chrome-mv3');
+const EXT = path.join(root, 'dist-e2e/chrome-mv3');
 const OUT = path.join(root, 'docs/screenshots');
 const SHOTS = !process.argv.includes('--no-shots');
 const DARK = process.argv.includes('--dark');

@@ -139,7 +139,7 @@ pnpm install
 pnpm build
 ```
 
-Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `.output/chrome-mv3`. Works in Chrome, Edge, Brave and Arc.
+Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `dist/chrome-mv3`. Works in Chrome, Edge, Brave and Arc.
 
 A source build has **no cloud AI server configured** — it works with Gemini Nano (on device, where supported) and heuristics. To get Gemini organising your tabs, host your own TabLens API (free on Cloudflare, ~5 minutes):
 
@@ -177,7 +177,7 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Dev build with HMR in a fresh Chrome profile |
-| `pnpm build` | Production build to `.output/chrome-mv3` |
+| `pnpm build` | Production build to `dist/chrome-mv3` |
 | `pnpm zip` | Store-ready zip |
 | `pnpm test` | Unit tests (Vitest): URL normalisation, TF-IDF, states, clustering, rules, AI merges, library shelves |
 | `pnpm compile` | Type-check |
