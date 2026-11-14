@@ -287,7 +287,16 @@ function scheduleFreshAnalysis(ms: number) {
   );
 }
 
-async function ensureContentScripts() {
+// permissions.onAdded and the dashboard's enableContentReading fire together when access is granted;
+// running them one after another stops both from registering and the second failing as a duplicate.
+let contentScriptsLock: Promise<void> = Promise.resolve();
+function ensureContentScripts() {
+  const run = contentScriptsLock.then(syncContentScripts);
+  contentScriptsLock = run.catch(() => {});
+  return run;
+}
+
+async function syncContentScripts() {
   const granted = await chrome.permissions.contains({ origins: WEB_ORIGINS });
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [CONTENT_ID] }).catch(() => []);
   if (!granted) {
