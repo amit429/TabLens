@@ -14,6 +14,7 @@ function Root({ children }: { children: React.ReactNode }) {
       {children}
       <Toaster
         position="bottom-center"
+        closeButton
         theme={dark ? 'dark' : 'light'}
         toastOptions={{ className: '!font-sans !text-[13px] !rounded-[12px] !border-border', actionButtonStyle: { background: 'var(--foreground)', color: 'var(--background)', fontWeight: 600 } }}
       />

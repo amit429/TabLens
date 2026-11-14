@@ -1,15 +1,16 @@
 import { toast } from 'sonner';
 import { rpc, type UndoResult } from './rpc';
 
-/** Runs an action and shows its result with a 30-second Undo. */
+/** Runs an action and shows its result; actions that can be undone keep their toast for the 30-second Undo window. */
 export async function act(run: Promise<UndoResult | void>, opts: { success?: string } = {}): Promise<UndoResult | void> {
   try {
     const r = await run;
     const message = (r && r.message) || opts.success;
+    const undoId = r && r.undoId;
     if (message)
       toast(message, {
-        duration: 30_000,
-        action: r && r.undoId ? { label: 'Undo', onClick: () => undoNow(r.undoId!) } : undefined,
+        duration: undoId ? 30_000 : 4_000,
+        action: undoId ? { label: 'Undo', onClick: () => undoNow(undoId) } : undefined,
       });
     return r;
   } catch (err) {
