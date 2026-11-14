@@ -18,7 +18,8 @@
     "icons": "./scripts/make-icons.sh",
     "test:server": "pnpm --dir server test",
     "dev:server": "pnpm --dir server dev",
-    "deploy:server": "pnpm --dir server deploy"
+    "deploy:server": "pnpm --dir server deploy",
+    "zip:store": "TABLENS_STORE=1 wxt zip"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

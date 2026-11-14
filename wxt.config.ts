@@ -1,6 +1,17 @@
 import { defineConfig } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
 
+/** The production TabLens API (server/), which holds the Gemini key. Override with TABLENS_API=… */
+const TABLENS_API = process.env.TABLENS_API ?? 'https://tablens-api.amitpile2002.workers.dev';
+
+/**
+ * Public key that pins the extension id to pcafglkkkambggigaheapgbiogepdnnd for unpacked/dev
+ * installs, so the API can allow-list it. Not secret (the private half stays out of the repo).
+ * The Chrome Web Store rejects a `key` field, so store builds (TABLENS_STORE=1) leave it out and
+ * the store id gets added to ALLOWED_EXTENSION_IDS after publishing.
+ */
+const MANIFEST_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA9WsY3lzusvz0O59XdyBd+AxD6H1Xe5I0AlOoWWJMJc7h2kjCvQWD7nccMHicT5V4wFgPo3gGPeNTOU0PaQJ9j9I7EYfQedEb9fFhKANWdmFAN7LRfU9nQEr3MlbhNa2bzxYX3ohtp7m+rOzxa82xR9fDSYvkGRuJIH53ZTwQ6nqFMqvWHoW/UqU2EZutwzvr8iIzNL+w/N84G60GDmEPwEcVvXIWlbAYD8yevnogEzIGpjseNE4M3niAz+sdwP+VunewA1f9yXrql4Pgy+6cYI3DUxNMApYn77zLEKtYST3Kjrocj5ko7vG2yX6sQB8y68G7+10FciQJgrtkIja3HwIDAQAB';
+
 export default defineConfig({
   srcDir: 'src',
   outDir: process.env.TABLENS_E2E ? '.output-e2e' : '.output',
@@ -10,6 +21,7 @@ export default defineConfig({
     // optional. WXT would otherwise add the script's match patterns as install-time host permissions.
     // TABLENS_E2E=1 builds a test variant with the optional permissions pre-granted.
     'build:manifestGenerated': (_wxt, manifest) => {
+      if (!process.env.TABLENS_STORE) (manifest as { key?: string }).key = MANIFEST_KEY;
       if (process.env.TABLENS_E2E) {
         manifest.permissions = [...(manifest.permissions ?? []), 'bookmarks'];
         return;
@@ -20,8 +32,7 @@ export default defineConfig({
   vite: () => ({
     plugins: [tailwindcss()],
     define: {
-      // The TabLens API (server/) that holds the Gemini key. Override with TABLENS_API=… at build time.
-      'import.meta.env.WXT_TABLENS_API': JSON.stringify(process.env.TABLENS_API ?? 'http://localhost:8787'),
+      'import.meta.env.WXT_TABLENS_API': JSON.stringify(TABLENS_API),
     },
   }),
   manifest: {

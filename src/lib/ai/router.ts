@@ -29,7 +29,7 @@ import {
  */
 
 /** Where the TabLens API lives. Set at build time with TABLENS_API (see wxt.config.ts). */
-export const API_BASE: string = import.meta.env.WXT_TABLENS_API || 'http://localhost:8787';
+export const API_BASE: string = import.meta.env.WXT_TABLENS_API || 'https://tablens-api.amitpile2002.workers.dev';
 
 interface LanguageModelSession {
   prompt(input: string, opts?: { responseConstraint?: object; signal?: AbortSignal }): Promise<string>;
