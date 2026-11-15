@@ -38,6 +38,9 @@ export interface RpcMap {
   snapshot: { req: { snapshot: Omit<Snapshot, 'normUrl' | 'capturedAt' | 'keywords' | 'pageType'> & { pageType: PageType | null } }; res: void };
   metrics: { req: { maxScroll?: number; interactions?: number; formStarted?: boolean; heartbeat?: boolean }; res: void };
   switchToDuplicate: { req: { targetTabId: number; closeSelf: boolean }; res: void };
+  /** Answer to "add this tab to the group?" — from the prompt on the page (sender's tab) or a given tab. */
+  answerJoin: { req: { group: string; accept: boolean; tabId?: number }; res: { joined: boolean } };
+  openSettings: { req: { section?: string }; res: void };
 }
 
 export interface UndoResult {

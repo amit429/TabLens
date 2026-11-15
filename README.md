@@ -52,7 +52,7 @@ Chrome groups can't span windows, so you choose (Settings → Grouping):
 | **Gather into one window** (default) | Its tabs move into the window that already has the mission's group (or holds most of it) — one group per mission |
 | **Group in each window** | Nothing moves; each window gets its own group with the mission's name and colour |
 
-- **Keep groups in sync** (on by default): once a mission is grouped, new tabs that belong to it join its group automatically — in the same window, or gathered, per your mode. It only extends groupings you made; it never closes tabs.
+- **New tabs that fit a group — asked first**: once a mission is grouped, a new tab that belongs to it gets a small prompt on the page (*Add to group* / *No*) instead of being moved while you use it. A *No* is remembered for that tab and that group. Prefer no questions? Turn on **Add new tabs to groups automatically** in Settings (it warns you first: tabs then move from any window into their group). It only extends groupings you made; it never closes tabs.
 - Pinned tabs, popup/app windows and incognito-vs-normal boundaries are respected; one mission failing never stops the rest.
 - **Undo** puts every tab back in its original window and position — recreating a window if gathering emptied it.
 
@@ -201,8 +201,8 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 | `pnpm test` | Unit tests (Vitest): URL normalisation, TF-IDF, states, clustering, rules, AI merges, library shelves |
 | `pnpm compile` | Type-check |
 | `pnpm test:server` | TabLens API tests: caller check (Chrome and Firefox), CORS, install id, validation, rate limits, daily quota |
-| `pnpm e2e` | Builds a test variant and drives the **real extension** in Chromium, offline: 24 realistic tabs (states, mission separation, Chrome grouping, drag-to-rule, form privacy, archive + undo), then a **multi-window run** — missions split across 3 windows plus a pinned tab and a popup window — checking real Chrome groups in both modes, undo across windows and auto-sync |
-| `pnpm e2e:firefox` | The multi-window run in **real Firefox** (gather, undo, per-window, auto-sync on Firefox tab groups) plus popup, sidebar and settings rendering. Needs a Firefox: `npx @puppeteer/browsers install firefox@stable --path ~/.cache/puppeteer` |
+| `pnpm e2e` | Builds a test variant and drives the **real extension** in Chromium, offline: 24 realistic tabs (states, mission separation, Chrome grouping, drag-to-rule, form privacy, archive + undo), then a **multi-window run** — missions split across 3 windows plus a pinned tab and a popup window — checking real Chrome groups in both modes, undo across windows, the ask-first prompt (a *No* sticks) and automatic joining |
+| `pnpm e2e:firefox` | The multi-window run in **real Firefox** (gather, undo, per-window, ask-first and automatic joining on Firefox tab groups) plus popup, sidebar and settings rendering. Needs a Firefox: `npx @puppeteer/browsers install firefox@stable --path ~/.cache/puppeteer` |
 | `pnpm screenshots` | Same run, writing light and dark screenshots of every surface to `docs/screenshots` |
 
 ```

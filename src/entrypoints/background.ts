@@ -11,6 +11,7 @@ import * as tracker from '@/lib/tracker';
 import { WEB_ORIGINS, isExcluded, isReadableUrl, normalizeUrl } from '@/lib/url';
 import { DAY } from '@/lib/analysis/states';
 import { IS_FIREFOX, openSidePanel } from '@/lib/platform';
+import { decline, markAsked, mayAsk } from '@/lib/join-prompts';
 
 const CONTENT_ID = 'tablens-content';
 const CONTENT_FILE = 'content-scripts/content.js';
@@ -66,6 +67,7 @@ export default defineBackground({
     });
     chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
       await tracker.focusTab(tabId, windowId);
+      scheduleJoinCheck();
       const t = await chrome.tabs.get(tabId).catch(() => undefined);
       if (t?.url) touchSeen(t.url).catch(() => {});
     });
@@ -79,6 +81,7 @@ export default defineBackground({
       if (windowId === chrome.windows.WINDOW_ID_NONE) return tracker.blur();
       const [t] = await chrome.tabs.query({ active: true, windowId });
       if (t?.id !== undefined) await tracker.focusTab(t.id, windowId);
+      scheduleJoinCheck();
     });
     chrome.idle.setDetectionInterval(60);
     chrome.idle.onStateChanged.addListener(async (state) => {
@@ -122,6 +125,14 @@ export default defineBackground({
       if (info.menuItemId === 'keep') await ex.setKeep([tab.id], true);
       if (info.menuItemId === 'snooze') await ex.archiveTabs([tab.id], { snoozeUntil: tomorrowMorning(), reason: 'Snoozed until tomorrow' });
       if (info.menuItemId === 'dashboard') await openDashboard();
+    });
+
+    // Chrome's fallback for the join prompt on pages TabLens can't show it on.
+    chrome.notifications?.onButtonClicked?.addListener(async (id, button) => {
+      const m = /^join:(\d+):(.+)$/.exec(id);
+      if (!m) return;
+      chrome.notifications.clear(id);
+      await answerJoin(Number(m[1]), decodeURIComponent(m[2]!), button === 0);
     });
 
     chrome.notifications?.onClicked.addListener(async (id) => {
@@ -254,6 +265,9 @@ export default defineBackground({
         await ex.openTab(targetTabId);
         if (closeSelf && sender.tab?.id !== undefined) await chrome.tabs.remove(sender.tab.id);
       },
+      // The page's prompt answers for its own tab; the dashboard names the tab.
+      answerJoin: async ({ group, accept, tabId }, sender) => answerJoin(tabId ?? sender.tab?.id, group, accept),
+      openSettings: async ({ section }) => openDashboard(`#/settings${section ? `?section=${section}` : ''}`),
     };
     serveRpc(handlers);
   },
@@ -272,11 +286,74 @@ function scheduleAnalysis(ms = 2500) {
   timer = setTimeout(
     () =>
       runAnalysis()
-        // Keep already-grouped missions grouped in Chrome as new tabs join them.
+        // Keep already-grouped missions grouped as new tabs arrive (or ask first, by default).
         .then((a) => ex.syncGroups(a))
+        .then((r) => promptJoin(r.suggestions))
         .catch((e) => console.warn('[TabLens] analysis failed', e)),
     ms,
   );
+}
+
+let joinTimer: ReturnType<typeof setTimeout> | undefined;
+/** Switching to a tab that fits a grouped mission can prompt too, once the user has settled on it. */
+function scheduleJoinCheck(ms = 1500) {
+  clearTimeout(joinTimer);
+  joinTimer = setTimeout(
+    () =>
+      latestAnalysis()
+        .then((a) => (a ? ex.syncGroups(a) : undefined))
+        .then((r) => r && promptJoin(r.suggestions))
+        .catch(() => {}),
+    ms,
+  );
+}
+
+/**
+ * Asks about the tab the user is looking at, if it fits a grouped mission: a prompt on the page,
+ * or (Chrome, on pages TabLens can't show it on) a notification with the same two buttons.
+ * Only that tab, only once per group (see join-prompts), so background tabs never move unasked.
+ */
+async function promptJoin(suggestions: ex.JoinSuggestion[]) {
+  if (!suggestions.length) return;
+  const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => undefined);
+  if (win?.id === undefined || !win.focused) return;
+  const [active] = await chrome.tabs.query({ active: true, windowId: win.id });
+  const j = suggestions.find((x) => x.tabId === active?.id);
+  if (!j || !active || !(await mayAsk(j.tabId, j.group))) return;
+  const moves = j.target.windowId !== j.windowId;
+  const where = moves ? `in ${await windowLabel(j.target.windowId)}` : 'in this window';
+  let shown = await chrome.tabs
+    .sendMessage(j.tabId, { __tablensJoin: { group: j.group, color: j.color, where, moves } })
+    .then((r) => r === true, () => false);
+  if (!shown && !IS_FIREFOX && chrome.notifications) {
+    // Firefox notifications have no buttons, so there the board is the way to group it.
+    await chrome.notifications.create(`join:${j.tabId}:${encodeURIComponent(j.group)}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('/icon/128.png'),
+      title: `Add this tab to “${j.group}”?`,
+      message: `${active.title ?? 'This tab'} fits the “${j.group}” group ${where}. To skip this question, turn on automatic grouping in TabLens Settings.`,
+      buttons: [{ title: moves ? `Move it to ${where.slice(3)}` : 'Add to group' }, { title: 'No' }],
+    });
+    shown = true;
+  }
+  if (shown) await markAsked(j.tabId, j.group);
+}
+
+async function answerJoin(tabId: number | undefined, group: string, accept: boolean): Promise<{ joined: boolean }> {
+  if (tabId === undefined) return { joined: false };
+  if (!accept) {
+    await decline(tabId, group);
+    return { joined: false };
+  }
+  const joined = await ex.acceptJoin(tabId, group);
+  scheduleAnalysis(800);
+  return { joined };
+}
+
+/** "Window 2", numbered the way the dashboard numbers windows. */
+async function windowLabel(windowId: number) {
+  const ids = [...new Set((await chrome.tabs.query({})).map((t) => t.windowId))].sort((a, b) => a - b);
+  return `Window ${ids.indexOf(windowId) + 1}`;
 }
 
 let freshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -287,6 +364,7 @@ function scheduleFreshAnalysis(ms: number) {
     () =>
       runAnalysis({ fresh: true })
         .then((a) => ex.syncGroups(a))
+        .then((r) => promptJoin(r.suggestions))
         .catch((e) => console.warn('[TabLens] analysis failed', e)),
     ms,
   );

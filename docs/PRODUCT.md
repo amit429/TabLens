@@ -35,7 +35,7 @@ Behaviour tracking, content snapshots, mission inference, the report, approve-on
 ### New in v2
 
 #### 0. Real tab groups across all windows
-Missions become real Chrome tab groups for tabs in every window. A mission spread across windows is either gathered into one window (default) or grouped in each window under the same name and colour. "Keep groups in sync" adds new tabs to their mission's group automatically once the user has grouped it. Undo restores windows exactly, recreating any that gathering emptied.
+Missions become real Chrome tab groups for tabs in every window. A mission spread across windows is either gathered into one window (default) or grouped in each window under the same name and colour. Once the user has grouped a mission, a new tab that fits it gets an on-page prompt ("Add to group" / "No"; Chrome falls back to a notification on pages TabLens can't show it on) instead of being moved while in use. A "No" is remembered for that tab and group. "Add new tabs to groups automatically" (off by default, with a warning) skips the question. Undo restores windows exactly, recreating any that gathering emptied.
 
 #### 1. Cleanup plan (popup)
 The PRD's report is the full page. Most people will only ever look at the popup, so the popup carries the verdict:

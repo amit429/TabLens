@@ -7,6 +7,7 @@ import type { Analysis, ArchiveEntry, Mission, Rule } from './types';
 import { hostnameOf, normalizeUrl } from './url';
 import { latestAnalysis } from './db';
 import { getSettings } from './settings';
+import { isDeclined } from './join-prompts';
 
 /**
  * The only module that changes tabs. Every function runs after an explicit click in a TabLens
@@ -192,46 +193,84 @@ export async function groupMissions(missionIds: string[]): Promise<UndoResult> {
   return { undoId: ops.length ? await recordUndo(message, ops) : undefined, count, message };
 }
 
+/** A tab that fits a mission the user has already grouped, and where it would go. */
+export interface JoinSuggestion {
+  tabId: number;
+  windowId: number;
+  missionId: string;
+  /** The group's title, which is the mission's name. */
+  group: string;
+  color: GroupColor;
+  /** The existing group to join (possibly in another window), or a same-named group to create here. */
+  target: { kind: 'group'; groupId: number; windowId: number } | { kind: 'new-group'; windowId: number };
+}
+
 /**
- * Auto-sync: for missions the user has already grouped in Chrome, put newly matching tabs into the
- * mission's group. Only extends groupings the user made (in per-window mode that can mean a same-named group in another
- * window); never closes tabs or touches missions the user hasn't grouped.
+ * Tabs that belong with a mission the user grouped (at least two tabs already in a group with the
+ * mission's name) but aren't in a group yet. Never suggests touching missions the user hasn't grouped.
  */
-export async function syncGroups(a: Analysis): Promise<number> {
-  const s = await getSettings();
-  if (!s.grouping.autoSync) return 0;
+async function joinCandidates(a: Analysis, crossWindow: 'gather' | 'per-window'): Promise<JoinSuggestion[]> {
   const normal = await normalWindowIds();
   const groups = new Map((await chrome.tabGroups.query({})).map((g) => [g.id, g]));
-  let added = 0;
+  const out: JoinSuggestion[] = [];
   for (const m of a.missions) {
     if (m.id === UNSORTED_ID) continue;
     const tabs = (await getTabs(m.tabIds)).filter((t) => !t.pinned && normal.has(t.windowId));
     const inGroup = tabs.filter((t) => groups.get(t.groupId ?? -1)?.title === m.name);
-    // Only missions the user grouped (at least two tabs already in a group with the mission's name).
     if (inGroup.length < 2) continue;
-    const loose = tabs.filter((t) => (t.groupId ?? -1) < 0);
-    for (const t of loose) {
-      const g = inGroup.find((x) => x.windowId === t.windowId && !x.incognito === !t.incognito);
-      if (g) {
-        await chrome.tabs.group({ tabIds: t.id!, groupId: g.groupId }).catch(() => {});
-        added++;
-      } else if (s.grouping.crossWindow === 'gather') {
-        const target = inGroup.find((x) => !x.incognito === !t.incognito);
-        if (!target) continue;
-        await chrome.tabs.move(t.id!, { windowId: target.windowId, index: -1 }).catch(() => {});
-        await chrome.tabs.group({ tabIds: t.id!, groupId: target.groupId }).catch(() => {});
-        added++;
-      } else {
-        // Per-window: the mission is grouped elsewhere, so give it a same-named group in this window too.
-        const gid = await chrome.tabs.group({ tabIds: t.id!, createProperties: { windowId: t.windowId } }).catch(() => undefined);
-        if (gid === undefined) continue;
-        await chrome.tabGroups.update(gid, { title: m.name, color: m.color as chrome.tabGroups.Color });
-        inGroup.push({ ...t, groupId: gid });
-        added++;
-      }
+    for (const t of tabs.filter((x) => (x.groupId ?? -1) < 0)) {
+      const here = inGroup.find((x) => x.windowId === t.windowId && !x.incognito === !t.incognito);
+      const elsewhere = inGroup.find((x) => !x.incognito === !t.incognito);
+      const target: JoinSuggestion['target'] | undefined = here
+        ? { kind: 'group', groupId: here.groupId!, windowId: here.windowId }
+        : crossWindow === 'gather'
+          ? elsewhere && { kind: 'group', groupId: elsewhere.groupId!, windowId: elsewhere.windowId }
+          : { kind: 'new-group', windowId: t.windowId };
+      if (target) out.push({ tabId: t.id!, windowId: t.windowId, missionId: m.id, group: m.name, color: m.color, target });
     }
   }
-  return added;
+  return out;
+}
+
+async function applyJoin(j: JoinSuggestion): Promise<boolean> {
+  if (j.target.kind === 'group') {
+    if (j.target.windowId !== j.windowId) await chrome.tabs.move(j.tabId, { windowId: j.target.windowId, index: -1 }).catch(() => {});
+    return chrome.tabs.group({ tabIds: j.tabId, groupId: j.target.groupId }).then(() => true, () => false);
+  }
+  // Per-window: the mission is grouped elsewhere, so it gets a same-named group in this window
+  // (joining one if an earlier tab already made it).
+  const [existing] = (await chrome.tabGroups.query({ windowId: j.windowId })).filter((g) => g.title === j.group);
+  if (existing) return chrome.tabs.group({ tabIds: j.tabId, groupId: existing.id }).then(() => true, () => false);
+  const gid = await chrome.tabs.group({ tabIds: j.tabId, createProperties: { windowId: j.windowId } }).catch(() => undefined);
+  if (gid === undefined) return false;
+  await chrome.tabGroups.update(gid, { title: j.group, color: j.color as chrome.tabGroups.Color });
+  return true;
+}
+
+/**
+ * Keeps grouped missions grouped as new tabs arrive. With grouping.newTabs = 'auto' the tabs are
+ * added straight away; with 'ask' (the default) they come back as suggestions for the user to
+ * accept. Tabs the user said no to for a group are left alone either way.
+ */
+export async function syncGroups(a: Analysis): Promise<{ added: number; suggestions: JoinSuggestion[] }> {
+  const s = await getSettings();
+  const open: JoinSuggestion[] = [];
+  for (const j of await joinCandidates(a, s.grouping.crossWindow)) if (!(await isDeclined(j.tabId, j.group))) open.push(j);
+  if (s.grouping.newTabs !== 'auto') return { added: 0, suggestions: open };
+  let added = 0;
+  for (const j of open) if (await applyJoin(j)) added++;
+  return { added, suggestions: [] };
+}
+
+/** The user said yes to "add this tab to the group?": add it now and keep it in view if it moved window. */
+export async function acceptJoin(tabId: number, group: string): Promise<boolean> {
+  const a = await latestAnalysis();
+  if (!a) return false;
+  const s = await getSettings();
+  const j = (await joinCandidates(a, s.grouping.crossWindow)).find((x) => x.tabId === tabId && x.group.toLowerCase() === group.toLowerCase());
+  if (!j || !(await applyJoin(j))) return false;
+  await openTab(tabId);
+  return true;
 }
 
 export async function applyPlan(p: { closeIds: number[]; archiveIds: number[]; groupMissionIds: string[] }): Promise<UndoResult> {

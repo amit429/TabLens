@@ -35,6 +35,12 @@ export default function Settings() {
   const s = useSettings();
   const [active, setActive] = React.useState('general');
 
+  // Deep links like #/settings?section=grouping (from the "add to group?" prompt) open on that section.
+  React.useEffect(() => {
+    const section = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('section');
+    if (section) setTimeout(() => document.getElementById(section)?.scrollIntoView({ block: 'start' }), 50);
+  }, []);
+
   React.useEffect(() => {
     const obs = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && setActive(e.target.id)), { rootMargin: '-30% 0px -60% 0px' });
     SECTIONS.forEach((x) => {
@@ -170,9 +176,36 @@ function Grouping({ s }: { s: S }) {
           ]}
         />
       </Row>
-      <Row label="Keep groups in sync" hint={`Once you've grouped a mission, new tabs that belong to it join its ${BROWSER_NAME} group automatically. TabLens never creates groups or closes tabs on its own.`}>
-        <Switch checked={s.grouping.autoSync} onCheckedChange={(v) => updateSettings({ grouping: { autoSync: v } })} aria-label="Keep groups in sync" />
-      </Row>
+      <div className="px-5 py-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <div className="text-[14px] font-medium">Add new tabs to groups automatically</div>
+            <div className="mt-0.5 text-[13px] text-muted-foreground">
+              {s.grouping.newTabs === 'auto'
+                ? 'On: a new tab that fits a mission you’ve grouped joins that group without asking.'
+                : 'Off (default): when a new tab fits a mission you’ve grouped, TabLens asks on that tab first. Say no and it won’t ask again about that tab and group — it can still join a different group, a new group on re-analysis, or any group you drag it to.'}
+            </div>
+          </div>
+          <Switch
+            checked={s.grouping.newTabs === 'auto'}
+            onCheckedChange={(v) => updateSettings({ grouping: { newTabs: v ? 'auto' : 'ask' } })}
+            aria-label="Add new tabs to groups automatically"
+          />
+        </div>
+        <div
+          role="note"
+          className="mt-3 flex gap-2.5 rounded-[10px] border px-3 py-2.5 text-[12.5px] leading-snug"
+          style={{ borderColor: 'color-mix(in oklab, var(--state-simmering) 45%, transparent)', background: 'color-mix(in oklab, var(--state-simmering) 9%, transparent)' }}
+        >
+          <ShieldAlert className="mt-px size-4 shrink-0" style={{ color: 'var(--state-simmering)' }} />
+          <span>
+            {s.grouping.crossWindow === 'gather'
+              ? 'Turned on, this takes a new tab out of whichever window it’s in — even the tab you’re using — and moves it into the most relevant group, if there is one.'
+              : 'Turned on, this puts a new tab into the most relevant group in its window as soon as it fits — even the tab you’re using.'}{' '}
+            Tabs you’ve said no to stay where they are.
+          </span>
+        </div>
+      </div>
     </Section>
   );
 }

@@ -93,48 +93,130 @@ export default defineContentScript({
       }
     }, 15_000);
 
-    chrome.runtime.onMessage.addListener((msg: { __tablensNudge?: { targetTabId: number; title: string; where: string } }) => {
+    chrome.runtime.onMessage.addListener((msg: Message, _sender, reply) => {
       if (msg?.__tablensNudge) showNudge(msg.__tablensNudge);
+      if (msg?.__tablensJoin) {
+        showJoin(msg.__tablensJoin);
+        reply(true); // tells the background the prompt is on screen
+      }
     });
   },
 });
 
-/** The "already open" chip. Shadow DOM so page CSS can't touch it. */
-function showNudge(n: { targetTabId: number; title: string; where: string }) {
-  document.getElementById('tablens-nudge')?.remove();
+type Message = {
+  __tablensNudge?: { targetTabId: number; title: string; where: string };
+  __tablensJoin?: { group: string; color: string; where: string; moves: boolean };
+};
+
+const GROUP_COLORS: Record<string, string> = {
+  grey: '#5F6368', blue: '#1A73E8', red: '#D93025', yellow: '#F9AB00', green: '#188038',
+  pink: '#D01884', purple: '#9334E6', cyan: '#007B83', orange: '#FA903E',
+};
+
+/**
+ * A small chip in the corner of the page. Shadow DOM so page CSS can't touch it, closed so page
+ * scripts can't read it. The markup is static; everything dynamic goes in as text.
+ */
+function showChip(o: {
+  id: string;
+  title: string;
+  detail: string;
+  accent: string;
+  primary: string;
+  secondary: string;
+  link?: string;
+  timeoutMs: number;
+  onPrimary: () => void;
+  onSecondary: () => void;
+  onLink?: () => void;
+}) {
+  document.getElementById(o.id)?.remove();
   const host = document.createElement('div');
-  host.id = 'tablens-nudge';
+  host.id = o.id;
   host.style.cssText = 'position:fixed;z-index:2147483647;bottom:20px;right:20px;';
   const root = host.attachShadow({ mode: 'closed' });
   root.innerHTML = `
     <style>
       .chip{font:500 13px/1.35 system-ui,-apple-system,sans-serif;color:#18202B;background:#fff;border:1px solid #E2E5EA;border-radius:12px;
-        box-shadow:0 8px 28px rgba(24,32,43,.18);padding:12px 12px 12px 14px;display:flex;gap:12px;align-items:center;max-width:380px;
+        box-shadow:0 8px 28px rgba(24,32,43,.18);padding:12px 12px 12px 14px;display:flex;gap:12px;align-items:center;max-width:420px;
         animation:in .18s ease-out}
       @media (prefers-color-scheme:dark){.chip{background:#1B1F26;color:#E8EBF0;border-color:#2A2F38}}
       @media (prefers-reduced-motion:reduce){.chip{animation:none}}
       @keyframes in{from{transform:translateY(8px);opacity:0}}
       .bar{width:4px;align-self:stretch;border-radius:4px;background:#D63F86}
       .t{flex:1;min-width:0}.t b{display:block;font-weight:600}.t span{display:block;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      button{font:600 12px system-ui,sans-serif;border-radius:8px;padding:7px 10px;cursor:pointer;border:1px solid transparent}
+      .t a{display:none;margin-top:4px;font-size:12px;opacity:.7;color:inherit;text-decoration:underline;cursor:pointer}
+      .t a.on{display:inline-block}
+      .btns{display:flex;flex-direction:column;gap:6px}
+      button{font:600 12px system-ui,sans-serif;border-radius:8px;padding:7px 10px;cursor:pointer;border:1px solid transparent;white-space:nowrap}
       .go{background:#18202B;color:#fff}.x{background:transparent;color:inherit;opacity:.7}
       @media (prefers-color-scheme:dark){.go{background:#E8EBF0;color:#14171C}}
-      button:focus-visible{outline:2px solid #3049D9;outline-offset:2px}
+      button:focus-visible,a:focus-visible{outline:2px solid #3049D9;outline-offset:2px}
     </style>
     <div class="chip" role="status">
       <div class="bar"></div>
-      <div class="t"><b></b><span></span></div>
-      <button class="go">Switch to it</button>
-      <button class="x" aria-label="Dismiss">Keep both</button>
+      <div class="t"><b></b><span></span><a href="#" tabindex="0"></a></div>
+      <div class="btns"><button class="go"></button><button class="x"></button></div>
     </div>`;
-  // Static markup above; everything dynamic goes in as text.
-  root.querySelector('.t b')!.textContent = `Already open ${n.where}`;
-  root.querySelector('.t span')!.textContent = n.title;
-  root.querySelector('.go')!.addEventListener('click', () => {
-    rpc('switchToDuplicate', { targetTabId: n.targetTabId, closeSelf: true }).catch(() => {});
+  const $ = (sel: string) => root.querySelector(sel) as HTMLElement;
+  $('.bar').style.background = o.accent;
+  $('.t b').textContent = o.title;
+  $('.t span').textContent = o.detail;
+  $('.t span').title = o.detail;
+  $('.go').textContent = o.primary;
+  $('.x').textContent = o.secondary;
+  if (o.link && o.onLink) {
+    const a = $('.t a');
+    a.textContent = o.link;
+    a.classList.add('on');
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      o.onLink!();
+    });
+  }
+  $('.go').addEventListener('click', () => {
+    o.onPrimary();
     host.remove();
   });
-  root.querySelector('.x')!.addEventListener('click', () => host.remove());
+  $('.x').addEventListener('click', () => {
+    o.onSecondary();
+    host.remove();
+  });
   document.documentElement.appendChild(host);
-  setTimeout(() => host.remove(), 12_000);
+  setTimeout(() => host.remove(), o.timeoutMs);
+}
+
+/** The "already open" chip. */
+function showNudge(n: { targetTabId: number; title: string; where: string }) {
+  showChip({
+    id: 'tablens-nudge',
+    title: `Already open ${n.where}`,
+    detail: n.title,
+    accent: '#D63F86',
+    primary: 'Switch to it',
+    secondary: 'Keep both',
+    timeoutMs: 12_000,
+    onPrimary: () => rpc('switchToDuplicate', { targetTabId: n.targetTabId, closeSelf: true }).catch(() => {}),
+    onSecondary: () => {},
+  });
+}
+
+/**
+ * "Add this tab to the group?" — shown instead of moving the tab while the user is on it.
+ * No is remembered for this tab and group; letting it time out just means "not now".
+ */
+function showJoin(j: { group: string; color: string; where: string; moves: boolean }) {
+  showChip({
+    id: 'tablens-join',
+    title: j.moves ? `This tab fits “${j.group}” ${j.where}` : `This tab fits “${j.group}”`,
+    detail: j.moves ? 'Adding it moves this tab to that window.' : 'Add it to the group in this window?',
+    accent: GROUP_COLORS[j.color] ?? '#3049D9',
+    primary: j.moves ? 'Move to group' : 'Add to group',
+    secondary: 'No',
+    link: 'Group new tabs automatically in Settings',
+    timeoutMs: 25_000,
+    onPrimary: () => rpc('answerJoin', { group: j.group, accept: true }).catch(() => {}),
+    onSecondary: () => rpc('answerJoin', { group: j.group, accept: false }).catch(() => {}),
+    onLink: () => rpc('openSettings', { section: 'grouping' }).catch(() => {}),
+  });
 }

@@ -39,6 +39,8 @@ const PAGES = {
   'https://open.spotify.com/playlist/focus': ['Deep Focus – Spotify', 'pinned'],
   'https://www.rtings.com/laptop/tests/battery-life': ['Laptop battery life test - RTINGS', 'popup'],
   'https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop': ['Lenovo Yoga 7 laptop review: battery life tested', 'late'],
+  'https://www.laptopmag.com/reviews/hp-spectre-x360-laptop': ['HP Spectre x360 laptop review: battery life tested', 'late'],
+  'https://www.laptopmag.com/reviews/acer-swift-go-laptop': ['Acer Swift Go laptop review: battery life tested', 'late'],
 };
 const html = (title) =>
   `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><meta name="description" content="${title}"></head><body><h1>${title}</h1>${`<p>${title}. ${title.split(' ').reverse().join(' ')}.</p>`.repeat(8)}</body></html>`;
@@ -124,7 +126,7 @@ await ev(async () => {
   for (const r of all) st.put({ ...r, hasHistory: true, lastAccessed: Date.now() - 3_600_000, activations: 2, activeMs: 60_000 });
   await new Promise((r) => (tx.oncomplete = r));
 });
-await setSettings({ installedAt: Date.now() - 20 * 86_400_000, onboarded: true, grouping: { crossWindow: 'gather', autoSync: true } });
+await setSettings({ installedAt: Date.now() - 20 * 86_400_000, onboarded: true, grouping: { crossWindow: 'gather', newTabs: 'auto' } });
 
 const a = await rpc('analyze', { fresh: true });
 const tabs0 = await allTabs();
@@ -222,30 +224,74 @@ for (const [k, m] of Object.entries(missions)) {
 }
 log('per-window mode ✓ — same-named group in every window, nothing moved');
 
-// ---------- Auto-sync: a new tab joins its mission's group ----------
+const LATE = 'https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop';
+const LATE_NO = 'https://www.laptopmag.com/reviews/hp-spectre-x360-laptop';
+const LATE_AUTO = 'https://www.laptopmag.com/reviews/acer-swift-go-laptop';
+// ---------- New tabs that fit a group: ask first (default), a No sticks, automatic on request ----------
 {
-  const late = await ctx.newPage();
-  await late.goto('https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop', { waitUntil: 'domcontentloaded' });
-  await ev(async ([w, url]) => {
+  const lateTab = async (url) => {
+    await (await ctx.newPage()).goto(url, { waitUntil: 'domcontentloaded' });
+    // Into window B, in front, so it is the tab the user is looking at.
+    await ev(async ([w, url]) => {
+      const [t] = await chrome.tabs.query({ url });
+      await chrome.tabs.move(t.id, { windowId: w, index: -1 });
+      await chrome.tabs.update(t.id, { active: true });
+      await chrome.windows.update(w, { focused: true });
+    }, [win.b, url]);
+    return (await allTabs()).find((x) => x.url === url);
+  };
+  const groupTitleOf = async (url) => {
+    const t = (await allTabs()).find((x) => x.url === url);
+    return (await allGroups()).find((g) => g.id === t?.groupId)?.title;
+  };
+  const chipShown = async (url) => {
+    for (const p of await ctx.pages()) if (p.url() === url) return !!(await p.$('#tablens-join'));
+    return false;
+  };
+
+  await setSettings({ grouping: { newTabs: 'ask' } });
+  const yes = await lateTab(LATE);
+  // The prompt follows the analysis that runs once the page has been read (a few seconds).
+  let shown = false;
+  for (let i = 0; i < 20 && !shown; i++) {
+    await sleep(1000);
+    shown = await chipShown(LATE);
+  }
+  assert.ok(shown, 'ask mode: the “add to group?” prompt is shown on the tab');
+  assert.equal(await groupTitleOf(LATE), undefined, 'ask mode: a new tab is not moved or grouped on its own');
+  const r = await rpc('answerJoin', { tabId: yes.id, group: missions.laptop.name, accept: true });
+  assert.ok(r.joined, 'yes: tab joins');
+  assert.equal(await groupTitleOf(LATE), missions.laptop.name, 'yes: tab is in the mission’s group');
+
+  const no = await lateTab(LATE_NO);
+  for (let i = 0; i < 20 && !(await chipShown(LATE_NO)); i++) await sleep(1000);
+  assert.equal(await groupTitleOf(LATE_NO), undefined, 'ask mode: second tab waits for an answer');
+  await rpc('answerJoin', { tabId: no.id, group: missions.laptop.name, accept: false });
+  // A No sticks: clear the prompt, come back to the tab, and it isn't asked again.
+  for (const p of await ctx.pages()) if (p.url() === LATE_NO) await p.evaluate(() => document.getElementById('tablens-join')?.remove());
+  await ev(async ([url, w]) => {
     const [t] = await chrome.tabs.query({ url });
-    await chrome.tabs.move(t.id, { windowId: w, index: -1 });
-  }, [win.b, 'https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop']);
+    const [other] = (await chrome.tabs.query({ windowId: w })).filter((x) => x.id !== t.id);
+    await chrome.tabs.update(other.id, { active: true });
+    await chrome.tabs.update(t.id, { active: true });
+  }, [LATE_NO, win.b]);
+  await sleep(5000);
+  assert.ok(!(await chipShown(LATE_NO)), 'no: not asked again for the same tab and group');
+  assert.equal(await groupTitleOf(LATE_NO), undefined, 'no: tab stays where it is');
+  log('ask ✓ — tabs stay put until answered; yes joins, no is remembered');
+
+  await setSettings({ grouping: { newTabs: 'auto' } });
+  await lateTab(LATE_AUTO);
+  let joined;
+  for (let i = 0; i < 30 && !joined; i++) {
+    await sleep(1000);
+    if ((await groupTitleOf(LATE_AUTO)) === missions.laptop.name) joined = (await allTabs()).find((x) => x.url === LATE_AUTO);
+  }
+  assert.ok(joined, 'automatic: new laptop tab joined the laptop group');
+  assert.equal(joined.windowId, win.b, 'automatic: grouped in its own window (per-window mode)');
+  assert.equal(await groupTitleOf(LATE_NO), undefined, 'automatic mode still respects a No for that tab and group');
+  log('automatic ✓ — new tab joined “' + missions.laptop.name + '”; the tab you said no to stayed out');
 }
-let joined;
-for (let i = 0; i < 30 && !joined; i++) {
-  await sleep(1000);
-  const t = (await allTabs()).find((x) => x.url === 'https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop');
-  const g = (await allGroups()).find((x) => x.id === t?.groupId);
-  if (g?.title === missions.laptop.name) joined = { t, g };
-}
-if (!joined) {
-  const a3 = await rpc('analyze', {});
-  const t = (await allTabs()).find((x) => x.url === 'https://www.laptopmag.com/reviews/lenovo-yoga-7-laptop');
-  log('late tab', t?.id, 'window', t?.windowId, 'group', t?.groupId, 'mission', a3.verdicts[t?.id]?.missionId, '| groups:', JSON.stringify((await allGroups()).map((g) => [g.title, g.windowId])));
-}
-assert.ok(joined, 'new laptop tab joined the laptop group automatically');
-assert.equal(joined.t.windowId, win.b, 'auto-sync grouped it in its own window (per-window mode)');
-log('auto-sync ✓ — new tab joined “' + joined.g.title + '” in its window');
 
 if (!process.argv.includes('--no-shots')) {
   await ext.bringToFront();

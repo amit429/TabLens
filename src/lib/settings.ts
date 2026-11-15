@@ -38,8 +38,12 @@ export interface Settings {
      * 'per-window' leaves tabs where they are and creates a same-named group in each window.
      */
     crossWindow: 'gather' | 'per-window';
-    /** Once a mission is grouped in Chrome, add its new tabs to the group automatically. */
-    autoSync: boolean;
+    /**
+     * A new tab that fits a mission you've already grouped:
+     * 'ask' shows a prompt on that tab (a "no" is remembered for that tab and group);
+     * 'auto' adds it straight away, moving it from whichever window it's in.
+     */
+    newTabs: 'ask' | 'auto';
   };
   features: {
     alreadyOpenNudge: boolean;
@@ -88,7 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
     pausedUntil: 0,
     snapshotRetentionDays: 7,
   },
-  grouping: { crossWindow: 'gather', autoSync: true },
+  grouping: { crossWindow: 'gather', newTabs: 'ask' },
   features: { alreadyOpenNudge: true, weeklyDigest: true, dailyAnalysis: true, badge: true },
   onboarded: false,
   installedAt: 0,
