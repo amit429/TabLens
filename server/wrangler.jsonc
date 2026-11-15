@@ -28,5 +28,5 @@
   // Secrets — set in the Cloudflare dashboard (Settings → Variables and Secrets → type Secret)
   // or with `wrangler secret put`; never in this file:
   //   GEMINI_API_KEY         your Gemini key
-  //   ALLOWED_EXTENSION_IDS  your extension id(s), comma-separated. Unset = refuse all requests.
+  //   ALLOWED_EXTENSION_IDS  your extension id(s), comma-separated (Chrome ids and Firefox add-on ids). Unset = refuse all requests.
 }

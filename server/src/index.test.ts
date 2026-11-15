@@ -64,6 +64,24 @@ describe('TabLens API', () => {
     expect(none.status).toBe(403);
   });
 
+  it('accepts Firefox by its add-on id from a moz-extension origin', async () => {
+    const FF = 'moz-extension://0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    const e = env({ ALLOWED_EXTENSION_IDS: 'tablens@example.com' });
+    const ok = await handle(req('/v1/quota', { origin: FF, headers: { 'X-TabLens-Extension': 'tablens@example.com' } }), e, fakeGemini);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('Access-Control-Allow-Origin')).toBe(FF);
+    // Preflight has no header values to check; the real request is.
+    const pre = await handle(req('/v1/organize', { method: 'OPTIONS', origin: FF, install: null }), e, fakeGemini);
+    expect(pre.status).toBe(204);
+    const other = await handle(req('/v1/quota', { origin: FF, headers: { 'X-TabLens-Extension': 'someone@else.com' } }), e, fakeGemini);
+    expect(other.status).toBe(403);
+    const missing = await handle(req('/v1/quota', { origin: FF }), e, fakeGemini);
+    expect(missing.status).toBe(403);
+    // A web page can't borrow the header.
+    const web = await handle(req('/v1/quota', { origin: 'https://evil.example', headers: { 'X-TabLens-Extension': 'tablens@example.com' } }), e, fakeGemini);
+    expect(web.status).toBe(403);
+  });
+
   it('refuses everything when no allow-list is configured (fail closed)', async () => {
     const r = await handle(req('/v1/quota'), env({ ALLOWED_EXTENSION_IDS: undefined }), fakeGemini);
     expect(r.status).toBe(403);

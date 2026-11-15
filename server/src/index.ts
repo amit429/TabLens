@@ -72,7 +72,7 @@ export async function handle(request: Request, env: Env, generate: Generate): Pr
     return json<HealthInfo>({ ok: !!env.GEMINI_API_KEY, model: env.GEMINI_API_KEY === 'mock' ? 'mock' : env.GEMINI_MODEL }, 200, corsFor(origin, request.headers.get(EXTENSION_HEADER), env));
   }
 
-  const cors = corsFor(origin, request.headers.get(EXTENSION_HEADER), env);
+  const cors = corsFor(origin, request.headers.get(EXTENSION_HEADER), env, request.method === 'OPTIONS');
   if (!cors) return json({ error: 'forbidden', message: 'Only the TabLens extension can call this API.' }, 403);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
@@ -137,17 +137,26 @@ export async function handle(request: Request, env: Env, generate: Generate): Pr
 
 /**
  * CORS headers when the caller is an allowed extension; null otherwise.
- * The id comes from the Origin header, or — only when there is no Origin at all — from the
+ * Chrome: the id comes from the Origin header, or — only when there is no Origin at all — from the
  * extension header. Browsers always attach Origin to cross-site requests from web pages, so a
  * website can't pass itself off as the extension.
+ * Firefox: the Origin is a random per-install moz-extension:// UUID, so the add-on id (gecko id)
+ * comes from the extension header, accepted only alongside a moz-extension:// Origin. A preflight
+ * carries no custom header values, so it is answered for any moz-extension:// origin; the request
+ * that follows is checked against the allow-list.
  */
-function corsFor(origin: string, extensionHeader: string | null, env: Env): Record<string, string> | null {
-  const fromOrigin = /^chrome-extension:\/\/([a-p]{32})$/.exec(origin)?.[1];
-  const id = origin ? fromOrigin : extensionHeader && /^[a-p]{32}$/.test(extensionHeader) ? extensionHeader : undefined;
-  if (!id) return null;
-  // Fail closed: no allow-list configured means nobody gets in. "*" opens it up for local dev.
-  const allowed = (env.ALLOWED_EXTENSION_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!allowed.includes('*') && !allowed.includes(id)) return null;
+function corsFor(origin: string, extensionHeader: string | null, env: Env, preflight = false): Record<string, string> | null {
+  const firefox = /^moz-extension:\/\/[0-9a-f-]{36}$/i.test(origin);
+  let id: string | undefined;
+  if (firefox) id = extensionHeader && GECKO_ID.test(extensionHeader) ? extensionHeader : undefined;
+  else if (origin) id = /^chrome-extension:\/\/([a-p]{32})$/.exec(origin)?.[1];
+  else id = extensionHeader && /^[a-p]{32}$/.test(extensionHeader) ? extensionHeader : undefined;
+  if (!(firefox && preflight)) {
+    if (!id) return null;
+    // Fail closed: no allow-list configured means nobody gets in. "*" opens it up for local dev.
+    const allowed = (env.ALLOWED_EXTENSION_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (!allowed.includes('*') && !allowed.includes(id)) return null;
+  }
   return {
     'Access-Control-Allow-Origin': origin || `chrome-extension://${id}`,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -156,6 +165,9 @@ function corsFor(origin: string, extensionHeader: string | null, env: Env): Reco
     Vary: 'Origin',
   };
 }
+
+/** Firefox add-on ids: email-like ("tablens@example.com") or a braced UUID. */
+const GECKO_ID = /^(?:[a-zA-Z0-9._-]{1,64}@[a-zA-Z0-9._-]{1,64}|\{[0-9a-fA-F-]{36}\})$/;
 
 class BodyError extends Error {}
 

@@ -21,7 +21,7 @@ Prompts, request limits and response schemas live in [`src/lib/ai/contract.ts`](
 ## Abuse protection
 
 - **Fixed prompts, capped input.** The Worker only runs its own two prompts on size-limited, schema-validated input, so it can't be used as a general Gemini endpoint.
-- **Caller check, fail closed.** Only extensions listed in the `ALLOWED_EXTENSION_IDS` secret get in (Origin `chrome-extension://…`, or the `X-TabLens-Extension` header when Chrome omits Origin). Unset means every request is refused; `*` allows any extension, for local development only. Web pages always send their own Origin and are rejected.
+- **Caller check, fail closed.** Only extensions listed in the `ALLOWED_EXTENSION_IDS` secret get in (Origin `chrome-extension://…`, or the `X-TabLens-Extension` header when Chrome omits Origin; Firefox, whose Origin is a random per-install `moz-extension://` UUID, is identified by its add-on id in that header). Unset means every request is refused; `*` allows any extension, for local development only. Web pages always send their own Origin and are rejected.
 - **Rate limits.** 20 requests/minute per install and 60/minute per IP (Workers Rate Limiting).
 - **Daily quotas.** Per install: 60 analyses and 200 summaries (`DAILY_NAMING_LIMIT`, `DAILY_SUMMARY_LIMIT`). Per IP: 300 calls (`DAILY_IP_LIMIT`) — install ids are self-asserted, IPs aren't. In total: 3,000 calls (`DAILY_GLOBAL_LIMIT`) — the hard ceiling on your Gemini spend, whoever finds the URL.
 - **No content logging.** Only error classes are logged; tab data is never stored.
@@ -54,6 +54,6 @@ npx wrangler secret put ALLOWED_EXTENSION_IDS   # your extension id(s) from `pnp
 npx wrangler deploy                       # prints https://tablens-api.<your-subdomain>.workers.dev
 ```
 
-Then, in the repo root: put the Worker URL in `TABLENS_API` in `.env`, run `pnpm keygen` to pin your extension id, and add that id as the `ALLOWED_EXTENSION_IDS` secret (comma-separate several, e.g. your dev id and your Chrome Web Store id). Rebuild the extension.
+Then, in the repo root: put the Worker URL in `TABLENS_API` in `.env`, run `pnpm keygen` to pin your extension id, and add that id as the `ALLOWED_EXTENSION_IDS` secret (comma-separate several, e.g. your dev id, your Chrome Web Store id and your Firefox add-on id `TABLENS_FIREFOX_ID`). Rebuild the extension.
 
 Cost control: `gemini-3.5-flash-lite` is the default model (`GEMINI_MODEL`). Also set a budget alert on the Google Cloud project that owns the key.
