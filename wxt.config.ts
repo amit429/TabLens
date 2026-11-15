@@ -31,6 +31,11 @@ export default defineConfig({
   // Visible folders (macOS file pickers hide dot-folders, which made "Load unpacked" awkward).
   outDir: process.env.TABLENS_E2E ? 'dist-e2e' : 'dist',
   modules: ['@wxt-dev/module-react'],
+  // The sources zip AMO reviewers rebuild from: code and build config only. Never the git-ignored
+  // release/ drafts, build output, keys or env files, and not the video or screenshots.
+  zip: {
+    excludeSources: ['release/**', 'dist/**', 'dist-e2e/**', '.keys/**', '.env', '.env.local', 'assets/**', 'docs/screenshots/**', 'server/node_modules/**'],
+  },
   hooks: {
     // Content scripts are registered at runtime after the user opts in, so page access must stay
     // optional. WXT would otherwise add the script's match patterns as install-time host permissions.
