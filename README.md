@@ -15,9 +15,9 @@
 
 ## See it in 33 seconds
 
-<a href="assets/TabLens-launch.mp4"><img src="docs/screenshots/demo-video.jpg" alt="Play the TabLens launch video: tabs from three windows regrouped into named Chrome tab groups" width="100%"></a>
+<a href="https://github.com/amit429/TabLens/raw/main/assets/TabLens-launch.mp4"><img src="docs/screenshots/demo-video.jpg" alt="Play the TabLens launch video: tabs from three windows regrouped into named Chrome tab groups" width="100%"></a>
 
-[▶ Watch the launch video](assets/TabLens-launch.mp4) (MP4, 33 s): a crushed tab strip, every tab sorted by how you've used it, the cleanup plan, "why it's here", dragging a tab into a mission, and three windows regrouping into real Chrome tab groups.
+[▶ Download the launch video](https://github.com/amit429/TabLens/raw/main/assets/TabLens-launch.mp4) (MP4, 33 s, 4 MB): a crushed tab strip, every tab sorted by how you've used it, the cleanup plan, "why it's here", dragging a tab into a mission, and three windows regrouping into real Chrome tab groups.
 
 ---
 
