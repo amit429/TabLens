@@ -123,10 +123,12 @@ function showNudge(n: { targetTabId: number; title: string; where: string }) {
     </style>
     <div class="chip" role="status">
       <div class="bar"></div>
-      <div class="t"><b>Already open ${n.where}</b><span></span></div>
+      <div class="t"><b></b><span></span></div>
       <button class="go">Switch to it</button>
       <button class="x" aria-label="Dismiss">Keep both</button>
     </div>`;
+  // Static markup above; everything dynamic goes in as text.
+  root.querySelector('.t b')!.textContent = `Already open ${n.where}`;
   root.querySelector('.t span')!.textContent = n.title;
   root.querySelector('.go')!.addEventListener('click', () => {
     rpc('switchToDuplicate', { targetTabId: n.targetTabId, closeSelf: true }).catch(() => {});

@@ -14,6 +14,7 @@ import { usePageAccess, requestAccess } from '@/hooks/access';
 import { useSettings } from '@/hooks/data';
 import { DEFAULT_SETTINGS, SENSITIVE_PRESETS, isPaused, updateSettings, type AiMode, type Settings as S } from '@/lib/settings';
 import { CLOUD_AVAILABLE, downloadNano, type NanoStatus } from '@/lib/ai/router';
+import { BROWSER_NAME, requestCloudDataConsent } from '@/lib/platform';
 import { buildUserPrompt } from '@/lib/ai/contract';
 import { db, uid } from '@/lib/db';
 import { rpc, type RpcMap } from '@/lib/rpc';
@@ -151,7 +152,7 @@ function General({ s }: { s: S }) {
 
 function Grouping({ s }: { s: S }) {
   return (
-    <Section id="grouping" title="Grouping" hint="How missions become real Chrome tab groups. Tabs in every browser window are included; pinned tabs and popup windows are left alone.">
+    <Section id="grouping" title="Grouping" hint={`How missions become real ${BROWSER_NAME} tab groups. Tabs in every browser window are included; pinned tabs and popup windows are left alone.`}>
       <Row
         label="Missions spread across windows"
         hint={
@@ -169,7 +170,7 @@ function Grouping({ s }: { s: S }) {
           ]}
         />
       </Row>
-      <Row label="Keep groups in sync" hint="Once you've grouped a mission, new tabs that belong to it join its Chrome group automatically. TabLens never creates groups or closes tabs on its own.">
+      <Row label="Keep groups in sync" hint={`Once you've grouped a mission, new tabs that belong to it join its ${BROWSER_NAME} group automatically. TabLens never creates groups or closes tabs on its own.`}>
         <Switch checked={s.grouping.autoSync} onCheckedChange={(v) => updateSettings({ grouping: { autoSync: v } })} aria-label="Keep groups in sync" />
       </Row>
     </Section>
@@ -302,7 +303,7 @@ function Ai({ s }: { s: S }) {
   };
 
   return (
-    <Section id="ai" title="AI" hint="With TabLens AI on, Gemini decides your missions from the first analysis — which tabs belong together and what to call them — and summarises pages. Your own Chrome groups, board moves and renames always win. No API key needed.">
+    <Section id="ai" title="AI" hint={`With TabLens AI on, Gemini decides your missions from the first analysis — which tabs belong together and what to call them — and summarises pages. Your own ${BROWSER_NAME} groups, board moves and renames always win. No API key needed.`}>
       <Row label="Mode" hint="Automatic uses TabLens AI when it's on; otherwise Gemini Nano on this device names missions; otherwise heuristics.">
         <Segmented<AiMode>
           value={s.ai.mode}
@@ -355,7 +356,14 @@ function Ai({ s }: { s: S }) {
         hint="Sends a short descriptor per tab — title, site, page type and up to 100 words of summary — to TabLens's server, which asks Google Gemini to organise them. Runs on Re-analyse, once a day, and when several new tabs pile up (at most every 10 minutes). Never full page text, form data or your history; nothing is stored or logged."
       >
         {CLOUD_AVAILABLE ? (
-          <Switch checked={s.ai.cloudConsent} onCheckedChange={(v) => updateSettings({ ai: { cloudConsent: v } })} aria-label="Use TabLens AI" />
+          <Switch
+            checked={s.ai.cloudConsent}
+            onCheckedChange={async (v) => {
+              if (v && !(await requestCloudDataConsent())) return;
+              await updateSettings({ ai: { cloudConsent: v } });
+            }}
+            aria-label="Use TabLens AI"
+          />
         ) : (
           <Badge>Not set up in this build</Badge>
         )}
@@ -647,7 +655,7 @@ function Data() {
           <Upload /> Import JSON
         </Button>
       </Row>
-      <Row label="Delete all data" hint="Removes every record, snapshot, archived tab, save, note, rule and setting. Your open tabs and Chrome bookmarks are not touched.">
+      <Row label="Delete all data" hint={`Removes every record, snapshot, archived tab, save, note, rule and setting. Your open tabs and ${BROWSER_NAME} bookmarks are not touched.`}>
         <Button variant="destructive" onClick={() => setConfirmOpen(true)}>
           <Trash2 /> Delete all data
         </Button>

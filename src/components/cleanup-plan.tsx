@@ -7,6 +7,7 @@ import { rpc } from '@/lib/rpc';
 import { act } from '@/lib/ui-actions';
 import { cn } from '@/lib/cn';
 import type { Analysis, PlanItem } from '@/lib/types';
+import { BROWSER_NAME } from '@/lib/platform';
 
 const ICON: Record<PlanItem['kind'], typeof Copy> = {
   'close-duplicates': Copy,
@@ -26,7 +27,7 @@ const EXPLAIN: Record<PlanItem['kind'], string> = {
   'close-duplicates': 'The other copy stays open.',
   'archive-abandoned': 'Closed and saved to the Archive. Restore any time.',
   'archive-stale': 'Not opened for a few days and barely used.',
-  'group-missions': 'Puts each mission into a real Chrome tab group, across all your windows.',
+  'group-missions': `Puts each mission into a real ${BROWSER_NAME} tab group, across all your windows.`,
 };
 
 /**

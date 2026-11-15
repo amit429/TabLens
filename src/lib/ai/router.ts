@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Namer, Organizer } from '../analysis/analyze';
+import { hasCloudDataConsent } from '../platform';
 import { updateSettings, type Settings } from '../settings';
 import type { Snapshot } from '../types';
 import {
@@ -101,6 +102,8 @@ export class CloudError extends Error {
 async function call<T>(settings: Settings, path: string, init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number }): Promise<T> {
   if (!CLOUD_AVAILABLE) throw new CloudError('This build has no TabLens AI server configured.', 'not_configured', 0);
   if (!settings.installId) settings = await updateSettings({ installId: crypto.randomUUID() });
+  if (init.body !== undefined && !(await hasCloudDataConsent()))
+    throw new CloudError('Firefox data sharing for TabLens AI is off. Turn TabLens AI off and on again in Settings to allow it.', 'no_data_consent', 0);
   let res: Response;
   try {
     res = await fetch(API_BASE + path, {

@@ -32,6 +32,7 @@ import { GROUP_COLORS } from '@/lib/analysis/naming';
 import { UNSORTED_ID, isMissionGrouped } from '@/lib/analysis/analyze';
 import { cn } from '@/lib/cn';
 import type { GroupColor, MissionKind, TabState } from '@/lib/types';
+import { BROWSER_NAME } from '@/lib/platform';
 
 const NEW_ID = '__new';
 const ARCHIVE_ZONE = '__archive';
@@ -168,12 +169,12 @@ export default function Board() {
           </Button>
           {!!ungrouped.length && (
             <Button onClick={() => act(rpc('groupMissions', { missionIds: ungrouped.map((m) => m.id) }))}>
-              <FolderTree /> Group {ungrouped.length} in Chrome
+              <FolderTree /> Group {ungrouped.length} in {BROWSER_NAME}
             </Button>
           )}
         </div>
       </div>
-      <p className="px-4 pb-3 text-[12px] text-muted-foreground md:px-8">Drag a card to another mission and the real tab moves into that Chrome tab group. TabLens remembers the move for next time.</p>
+      <p className="px-4 pb-3 text-[12px] text-muted-foreground md:px-8">Drag a card to another mission and the real tab moves into that {BROWSER_NAME} tab group. TabLens remembers the move for next time.</p>
 
       <DndContext sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div className="flex items-start gap-3 overflow-x-auto px-4 pb-24 scrollbar-thin md:px-8">
@@ -264,7 +265,7 @@ function Column({ mission: m, ids, renderCard, allMissions, grouped, windows }: 
               <Sparkles className="size-3.5 text-muted-foreground" />
             </Tooltip>
           )}
-          {grouped && <Badge variant="accent">In Chrome group</Badge>}
+          {grouped && <Badge variant="accent">In {BROWSER_NAME} group</Badge>}
           {windows > 1 && (
             <Tooltip content={grouped ? 'One group in each window — set in Settings → Grouping' : 'Grouping gathers these into one window, or groups them in each window — see Settings → Grouping'}>
               <Badge variant="outline">{windows} windows</Badge>
@@ -284,7 +285,7 @@ function Column({ mission: m, ids, renderCard, allMissions, grouped, windows }: 
         <footer className="flex gap-1.5 border-t border-border p-2">
           {!grouped && m.live.length > 1 && (
             <Button size="sm" variant="soft" className="flex-1" onClick={() => act(rpc('groupMissions', { missionIds: [m.id] }))}>
-              <FolderTree /> Group in Chrome
+              <FolderTree /> Group in {BROWSER_NAME}
             </Button>
           )}
           {canGo > 0 && (
@@ -322,7 +323,7 @@ function ColumnMenu({ mission: m, allMissions, onRename }: { mission: LiveMissio
           <Crosshair /> Focus on this mission
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => act(rpc('groupMissions', { missionIds: [m.id] }))}>
-          <FolderTree /> Group in Chrome
+          <FolderTree /> Group in {BROWSER_NAME}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={exportMd}>
           <ClipboardCopy /> Copy as Markdown
@@ -454,7 +455,7 @@ function NewMissionDialog({ tabIds, onClose }: { tabIds: number[] | null; onClos
     <Dialog open={tabIds !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogTitle>New mission</DialogTitle>
-        <DialogDescription>{tabIds?.length ? 'The tab you dropped moves into a new Chrome tab group with this name.' : 'Create an empty mission, then drag tabs into it.'}</DialogDescription>
+        <DialogDescription>{tabIds?.length ? `The tab you dropped moves into a new ${BROWSER_NAME} tab group with this name.` : 'Create an empty mission, then drag tabs into it.'}</DialogDescription>
         <form
           className="mt-4 flex gap-2"
           onSubmit={(e) => {

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { IS_FIREFOX, openSidePanel } from '@/lib/platform';
 import { ArrowLeft, Eye, LayoutDashboard, Loader2, PanelRight, RefreshCw, Search, Settings2, ShieldCheck } from 'lucide-react';
 import { Wordmark } from '@/components/logo';
 import { Button } from '@/components/ui/button';
@@ -63,8 +64,9 @@ export default function App() {
           <IconButton
             label="Open side panel"
             onClick={async () => {
-              const w = await chrome.windows.getCurrent();
-              await chrome.sidePanel.open({ windowId: w.id! });
+              // Firefox needs the sidebar opened synchronously from the click.
+              if (IS_FIREFOX) openSidePanel({});
+              else await openSidePanel({ windowId: (await chrome.windows.getCurrent()).id });
               window.close();
             }}
           >

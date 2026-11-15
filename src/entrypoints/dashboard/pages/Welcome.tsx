@@ -12,6 +12,7 @@ import { rpc } from '@/lib/rpc';
 import { act } from '@/lib/ui-actions';
 import { cn } from '@/lib/cn';
 import { CLOUD_AVAILABLE } from '@/lib/ai/router';
+import { BROWSER_NAME, IS_FIREFOX, requestCloudDataConsent } from '@/lib/platform';
 
 const STEPS = ['Your tabs', 'Page reading', 'Your missions'];
 
@@ -38,7 +39,8 @@ export default function Welcome() {
 
   const next = async () => {
     if (step === 0) {
-      await updateSettings({ ai: { cloudConsent: useAi } });
+      const consent = useAi && (await requestCloudDataConsent());
+      await updateSettings({ ai: { cloudConsent: consent } });
       // Organise right away so the missions on the last step are Gemini's, not the heuristic draft.
       organize();
     }
@@ -72,7 +74,7 @@ export default function Welcome() {
                 You have {tabs.length} tabs open across {windows} window{windows === 1 ? '' : 's'}.
               </h1>
               <p className="mt-3 text-[15px] text-muted-foreground">
-                Here they are, one slice each. TabLens will sort them into missions — the tasks they belong to — and turn those into real Chrome tab groups when you say so.
+                Here they are, one slice each. TabLens will sort them into missions — the tasks they belong to — and turn those into real {BROWSER_NAME} tab groups when you say so.
               </p>
               <Spectrum items={items} height={56} className="mt-8 rounded-[10px]" animateKey={String(tabs.length)} />
               <SpectrumLegend items={items} className="mt-3" />
@@ -124,7 +126,9 @@ export default function Welcome() {
                     <Eye /> Allow page reading
                   </Button>
                 )}
-                <p className="mt-2 text-[12px] text-muted-foreground">Chrome will ask to “read and change data on all websites”. TabLens only reads; you can turn it off in Settings.</p>
+                <p className="mt-2 text-[12px] text-muted-foreground">
+                  {IS_FIREFOX ? 'Firefox will ask to “access your data for all websites”.' : 'Chrome will ask to “read and change data on all websites”.'} TabLens only reads; you can turn it off in Settings.
+                </p>
               </div>
             </section>
           )}
@@ -138,8 +142,8 @@ export default function Welcome() {
                 {organizing
                   ? 'This takes a few seconds. You can carry on — the result appears here and on the board.'
                   : analysis?.engine === 'cloud'
-                    ? 'Organised by Gemini. Turn them into real Chrome tab groups — across all your windows — with one click, or adjust them on the board first.'
-                    : 'Sorted by on-device heuristics. Turn them into real Chrome tab groups with one click, or adjust them on the board first.'}
+                    ? `Organised by Gemini. Turn them into real ${BROWSER_NAME} tab groups — across all your windows — with one click, or adjust them on the board first.`
+                    : `Sorted by on-device heuristics. Turn them into real ${BROWSER_NAME} tab groups with one click, or adjust them on the board first.`}
               </p>
               <ul className="mt-6 space-y-2">
                 {organizing && !missions.length && <li className="h-24 animate-pulse rounded-[12px] bg-muted" />}
@@ -192,7 +196,7 @@ export default function Welcome() {
                   }}
                 >
                   {organizing ? <Loader2 className="animate-spin" /> : null}
-                  Group them in Chrome <ArrowRight />
+                  Group them in {BROWSER_NAME} <ArrowRight />
                 </Button>
               </>
             )}

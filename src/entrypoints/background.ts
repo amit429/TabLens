@@ -10,6 +10,7 @@ import { keywords } from '@/lib/text';
 import * as tracker from '@/lib/tracker';
 import { WEB_ORIGINS, isExcluded, isReadableUrl, normalizeUrl } from '@/lib/url';
 import { DAY } from '@/lib/analysis/states';
+import { IS_FIREFOX, openSidePanel } from '@/lib/platform';
 
 const CONTENT_ID = 'tablens-content';
 const CONTENT_FILE = 'content-scripts/content.js';
@@ -26,7 +27,7 @@ export default defineBackground({
       await ensureContentScripts();
       await setupMenus();
       await setupAlarms();
-      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+      if (!IS_FIREFOX) await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
       if (reason === 'install') await chrome.tabs.create({ url: chrome.runtime.getURL('/dashboard.html#/welcome') });
       scheduleAnalysis(500);
     });
@@ -102,14 +103,18 @@ export default defineBackground({
     // ---------- Commands & menus ----------
     chrome.commands.onCommand.addListener(async (command, tab) => {
       if (command === 'open-dashboard') await openDashboard();
-      if (command === 'open-side-panel' && tab?.windowId !== undefined) await chrome.sidePanel.open({ windowId: tab.windowId });
+      // Firefox opens the sidebar itself through the _execute_sidebar_action command.
+      if (command === 'open-side-panel' && tab?.windowId !== undefined) await openSidePanel({ windowId: tab.windowId });
     });
 
     chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (!tab?.id) return;
       if (info.menuItemId === 'save') {
+        // Open first: Firefox only opens the sidebar while still handling the click. The panel
+        // picks up the view from session storage whether it was already open or not.
+        const opened = openSidePanel({ tabId: tab.id });
         await chrome.storage.session.set({ sidePanelView: 'save' });
-        await chrome.sidePanel.open({ tabId: tab.id });
+        await opened;
       }
       if (info.menuItemId === 'save-link' && info.linkUrl) {
         await saveForLater({ url: info.linkUrl, title: info.selectionText || info.linkUrl, intent: 'read', note: '' });
