@@ -41,7 +41,7 @@ Together they let TabLens say things like *"You opened 9 laptop tabs over 6 days
 
 <br clear="right">
 
-### Real Chrome tab groups, across every window
+### Real tab groups (Chrome and Firefox), across every window
 
 TabLens doesn't just draw groups in its own UI — it creates and maintains **actual Chrome tab groups** (`chrome.tabGroups`), named and coloured after each mission, for tabs in **all** your browser windows.
 
@@ -154,16 +154,18 @@ pnpm build
 
 Then open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose `dist/chrome-mv3`. Works in Chromium browsers with tab groups: Chrome, Edge and Brave.
 
+**Firefox (142+):** `pnpm build:firefox`, then open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick `dist/firefox-mv3/manifest.json`. Same features — real Firefox tab groups across windows, the board, cleanup, library — with the side panel as a Firefox sidebar (`Alt+Shift+S`). Gemini Nano is Chrome-only, so on Firefox missions are named by TabLens AI or heuristics. A temporary add-on is removed when Firefox restarts; to keep it installed, sign it on [addons.mozilla.org](https://addons.mozilla.org/developers/) (unlisted is fine for testers) with `pnpm zip:firefox`.
+
 A source build has **no cloud AI server configured** — it works with Gemini Nano (on device, where supported) and heuristics. To get Gemini organising your tabs, host your own TabLens API (free on Cloudflare, ~5 minutes):
 
 1. Deploy `server/` to Cloudflare Workers and add your Gemini key as a secret — [server/README.md](server/README.md).
 2. `cp .env.example .env`, set `TABLENS_API` to your Worker's URL.
-3. `pnpm keygen` — pins your extension id and prints it; add that id to your Worker's `ALLOWED_EXTENSION_IDS` secret.
+3. `pnpm keygen` — pins your extension id and prints it; add that id to your Worker's `ALLOWED_EXTENSION_IDS` secret. For Firefox, also set `TABLENS_FIREFOX_ID` (e.g. `tablens@yourdomain`) and add it to the same secret.
 4. `pnpm build` and reload the extension.
 
-Nothing deployment-specific is committed: the API URL and extension key live in your git-ignored `.env`.
+Nothing deployment-specific is committed: the API URL, extension key and Firefox add-on id live in your git-ignored `.env`.
 
-For development with hot reload: `pnpm dev` (opens a Chrome with the extension loaded).
+For development with hot reload: `pnpm dev` (opens a Chrome with the extension loaded) or `pnpm dev:firefox`.
 
 ## How it works
 
@@ -193,12 +195,14 @@ More detail: [Product spec](docs/PRODUCT.md) · [UI spec](docs/UI-SPEC.md) · [A
 | `pnpm build` | Production build to `dist/chrome-mv3` |
 | `pnpm zip` | Zip of the build (keeps your pinned extension id) |
 | `pnpm zip:store` | Chrome Web Store zip (leaves out the manifest key, which the store rejects) |
+| `pnpm build:firefox` / `pnpm zip:firefox` | Firefox build to `dist/firefox-mv3` / zip for addons.mozilla.org |
 | `pnpm keygen` | Generates your extension key into `.env` and prints the extension id for the API allow-list |
 | `pnpm dev:server` / `pnpm deploy:server` | Run the TabLens API locally / deploy it to Cloudflare |
 | `pnpm test` | Unit tests (Vitest): URL normalisation, TF-IDF, states, clustering, rules, AI merges, library shelves |
 | `pnpm compile` | Type-check |
-| `pnpm test:server` | TabLens API tests: caller check, CORS, install id, validation, rate limits, daily quota |
+| `pnpm test:server` | TabLens API tests: caller check (Chrome and Firefox), CORS, install id, validation, rate limits, daily quota |
 | `pnpm e2e` | Builds a test variant and drives the **real extension** in Chromium, offline: 24 realistic tabs (states, mission separation, Chrome grouping, drag-to-rule, form privacy, archive + undo), then a **multi-window run** — missions split across 3 windows plus a pinned tab and a popup window — checking real Chrome groups in both modes, undo across windows and auto-sync |
+| `pnpm e2e:firefox` | The multi-window run in **real Firefox** (gather, undo, per-window, auto-sync on Firefox tab groups) plus popup, sidebar and settings rendering. Needs a Firefox: `npx @puppeteer/browsers install firefox@stable --path ~/.cache/puppeteer` |
 | `pnpm screenshots` | Same run, writing light and dark screenshots of every surface to `docs/screenshots` |
 
 ```
@@ -207,17 +211,16 @@ src/
   components/    ui/ (shadcn-style primitives) · spectrum · cleanup-plan · dossier · quick-find · save-dialog
   lib/           analysis/ (states, cluster, naming, analyze) · ai/ (contract shared with server, Nano + TabLens AI router) · tracker · executor · service · library · db · settings · rpc
 server/          TabLens API — Cloudflare Worker that holds the Gemini key
-scripts/         e2e.mjs · e2e-windows.mjs · keygen.mjs · make-icons.sh
+scripts/         e2e.mjs · e2e-windows.mjs · e2e-firefox.mjs · keygen.mjs · make-icons.sh
 assets/          launch video (outside src/, never part of the extension build)
 release/         git-ignored: tester zips, message and post drafts
 ```
 
 ## Roadmap
 
-- Publish to the Chrome Web Store
+- Publish to the Chrome Web Store and addons.mozilla.org
 - Mission tools: comparison table for shopping missions, reading queue for research
 - Optional in-browser embedding model for better clustering on pages with little text
-- Firefox port (tab APIs are already behind one executor)
 
 ## License
 
